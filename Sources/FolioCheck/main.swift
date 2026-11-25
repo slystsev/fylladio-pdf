@@ -1,0 +1,150 @@
+import AppKit
+import PDFKit
+import FolioCore
+
+// Headless self-check. Usage: FolioCheck [outDir] [largePages]
+let args = CommandLine.arguments
+let outDir = URL(fileURLWithPath: args.count > 1 ? args[1] : NSTemporaryDirectory() + "folio-check")
+let largePages = args.count > 2 ? Int(args[2]) ?? 2000 : 2000
+try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+var failures = 0
+func check(_ cond: Bool, _ msg: String) { print((cond ? "PASS " : "FAIL ") + msg); if !cond { failures += 1 } }
+func time<T>(_ label: String, _ f: () throws -> T) rethrows -> T {
+    let t = Date(); let r = try f(); print(String(format: "TIME %@: %.3fs", label, Date().timeIntervalSince(t))); return r
+}
+
+/// Makes a PDF with text lines and a grey "scanned image" box.
+func makePDF(_ url: URL, pages: Int, withImage: Bool = true) {
+    var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+    let ctx = CGContext(url as CFURL, mediaBox: &box, nil)!
+    for p in 0..<pages {
+        ctx.beginPDFPage(nil)
+        let ns = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = ns
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont(name: "Helvetica", size: 14)!]
+        for i in 0..<20 {
+            NSAttributedString(string: "Page \(p + 1) line \(i + 1): The quick brown fox jumps over the lazy dog.", attributes: attrs)
+                .draw(at: NSPoint(x: 50, y: 740 - CGFloat(i) * 22))
+        }
+        if withImage {
+            NSColor(white: 0.85, alpha: 1).setFill(); NSRect(x: 50, y: 80, width: 500, height: 200).fill()
+            NSColor.black.setFill(); NSRect(x: 70, y: 200, width: 300, height: 12).fill() // "scanned text" bar
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        ctx.endPDFPage()
+    }
+    ctx.closePDF()
+}
+
+func render(_ page: PDFPage, to url: URL) {
+    let img = page.thumbnail(of: NSSize(width: 1224, height: 1584), for: .mediaBox)
+    if let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) {
+        try? png.write(to: url)
+    }
+}
+
+let tools = ToolConfig.defaults
+func tool(_ id: String) -> ToolSpec { tools.first { $0.id == id }! }
+
+// 1. Annotate small doc: text-based and rectangle-based markups + free text.
+let small = outDir.appendingPathComponent("small.pdf")
+try? FileManager.default.removeItem(at: small)
+makePDF(small, pages: 3)
+let doc = PDFDocument(url: small)!
+let page = doc.page(at: 0)!
+check(AnnotationFactory.hasCharacter(on: page, at: NSPoint(x: 52, y: 745)), "character found at text point")
+check(!AnnotationFactory.hasCharacter(on: page, at: NSPoint(x: 300, y: 150)), "no character inside image box")
+
+let rows: [(String, Int)] = [("marker-yellow", 0), ("marker-green", 1), ("underline-red", 3), ("underline-blue", 4), ("squiggly-red", 6), ("squiggly-blue", 7)]
+for (id, line) in rows {
+    let y = 740 - CGFloat(line) * 22
+    let sel = doc.selection(from: page, at: NSPoint(x: 52, y: y + 5), to: page, at: NSPoint(x: 400, y: y + 5))!
+    let rects = sel.selectionsByLine().map { $0.bounds(for: page) }
+    check(!(sel.string ?? "").isEmpty, "text selection for \(id): \(sel.string ?? "")")
+    page.addAnnotation(AnnotationFactory.markup(tool: tool(id), rects: rects)!)
+}
+// Multi-line selection
+let multi = doc.selection(from: page, at: NSPoint(x: 200, y: 740 - 9 * 22 + 5), to: page, at: NSPoint(x: 150, y: 740 - 11 * 22 + 5))!
+let mrects = multi.selectionsByLine().map { $0.bounds(for: page) }
+check(mrects.count == 3, "multi-line selection yields 3 line rects (got \(mrects.count))")
+page.addAnnotation(AnnotationFactory.markup(tool: tool("marker-pink"), rects: mrects)!)
+// Rectangle markups on the "scan"
+page.addAnnotation(AnnotationFactory.markup(tool: tool("marker-blue"), rects: [NSRect(x: 65, y: 195, width: 310, height: 22)])!)
+page.addAnnotation(AnnotationFactory.markup(tool: tool("underline-red"), rects: [NSRect(x: 65, y: 160, width: 310, height: 22)])!)
+page.addAnnotation(AnnotationFactory.markup(tool: tool("squiggly-blue"), rects: [NSRect(x: 65, y: 120, width: 310, height: 22)])!)
+page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-red"), text: "Red note\nsecond line", topLeft: NSPoint(x: 420, y: 270)))
+page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-black"), text: "Black note", topLeft: NSPoint(x: 420, y: 200)))
+render(page, to: outDir.appendingPathComponent("annotated-memory.png"))
+
+// 2. Save while the doc stays open, reload, verify.
+let n = page.annotations.count
+try time("save small") { try SafeSaver.save(doc, to: small) }
+let reloaded = PDFDocument(url: small)!
+check(reloaded.page(at: 0)!.annotations.count == n, "annotations survive save/reload (\(n))")
+check(reloaded.page(at: 0)!.annotations.contains { $0.type == "Ink" }, "squiggly persisted")
+render(reloaded.page(at: 0)!, to: outDir.appendingPathComponent("annotated-reloaded.png"))
+// Original in-memory document still renders pages after its file was replaced
+render(doc.page(at: 2)!, to: outDir.appendingPathComponent("after-replace-page3.png"))
+check((doc.page(at: 2)!.string ?? "").contains("Page 3 line 1"), "open document still reads after file replaced")
+// Save twice more from the same in-memory doc (repeat autosaves)
+page.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 300, width: 100, height: 20)])!)
+try SafeSaver.save(doc, to: small)
+try SafeSaver.save(doc, to: small)
+check(PDFDocument(url: small)!.page(at: 0)!.annotations.count == n + 1, "repeated saves consistent")
+check(PDFDocument(url: small)!.page(at: 2)!.string?.contains("Page 3 line 1") == true, "page 3 text intact after repeated saves")
+
+// 3. Large file timing.
+let large = outDir.appendingPathComponent("large.pdf")
+if !FileManager.default.fileExists(atPath: large.path) { time("generate large (\(largePages) pages)") { makePDF(large, pages: largePages) } }
+let size = (try? FileManager.default.attributesOfItem(atPath: large.path)[.size] as? Int) ?? 0
+print("INFO large.pdf size \(size / 1_000_000) MB")
+let big = time("open large") { PDFDocument(url: large)! }
+_ = time("page count") { big.pageCount }
+let bp = big.page(at: big.pageCount / 2)!
+bp.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 730, width: 300, height: 20)])!)
+let work = outDir.appendingPathComponent("large-work.pdf")
+try? FileManager.default.removeItem(at: work)
+try FileManager.default.copyItem(at: large, to: work)
+let bigw = PDFDocument(url: work)!
+bigw.page(at: 10)!.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 730, width: 300, height: 20)])!)
+try time("save large") { try SafeSaver.save(bigw, to: work) }
+check(PDFDocument(url: work)!.page(at: 10)!.annotations.count == 1, "large save persisted")
+
+// 4. Heavy "scanned" file: pages that are big noisy JPEG images (opt-in: FOLIO_HEAVY=<pages>).
+if let hp = ProcessInfo.processInfo.environment["FOLIO_HEAVY"].flatMap(Int.init) {
+    let heavy = outDir.appendingPathComponent("heavy.pdf")
+    if !FileManager.default.fileExists(atPath: heavy.path) {
+        time("generate heavy (\(hp) pages)") {
+            let w = 1240, h = 1754 // A4 @ 150 dpi
+            var box = CGRect(x: 0, y: 0, width: 595, height: 842)
+            let ctx = CGContext(heavy as CFURL, mediaBox: &box, nil)!
+            for p in 0..<hp {
+                // Distinct noise per page so PDF writers can't dedupe the images.
+                let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 1,
+                                           hasAlpha: false, isPlanar: false, colorSpaceName: .deviceWhite, bytesPerRow: w, bitsPerPixel: 8)!
+                let px = rep.bitmapData!
+                var x = UInt32(p &* 7919 &+ 1)
+                for i in stride(from: 0, to: w * h, by: 1) { x ^= x << 13; x ^= x >> 17; x ^= x << 5; px[i] = UInt8(170 + x % 86) }
+                let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.5])!
+                let img = CGImage(jpegDataProviderSource: CGDataProvider(data: jpeg as CFData)!, decode: nil, shouldInterpolate: true, intent: .defaultIntent)!
+                ctx.beginPDFPage(nil); ctx.draw(img, in: box); ctx.endPDFPage()
+            }
+            ctx.closePDF()
+        }
+    }
+    let hsize = (try? FileManager.default.attributesOfItem(atPath: heavy.path)[.size] as? Int) ?? 0
+    print("INFO heavy.pdf size \(hsize / 1_000_000) MB")
+    let hw = outDir.appendingPathComponent("heavy-work.pdf")
+    try? FileManager.default.removeItem(at: hw)
+    try FileManager.default.copyItem(at: heavy, to: hw)
+    let hd = time("open heavy") { PDFDocument(url: hw)! }
+    hd.page(at: 5)!.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 700, width: 300, height: 20)])!)
+    try time("save heavy") { try SafeSaver.save(hd, to: hw) }
+    let hsize2 = (try? FileManager.default.attributesOfItem(atPath: hw.path)[.size] as? Int) ?? 0
+    print("INFO heavy after save \(hsize2 / 1_000_000) MB")
+    check(PDFDocument(url: hw)!.page(at: 5)!.annotations.count == 1, "heavy save persisted")
+}
+
+print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
+print("Output: \(outDir.path)")
+exit(failures == 0 ? 0 : 1)
