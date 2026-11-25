@@ -10,7 +10,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     let pdfView = AnnotatingPDFView(frame: .zero)
     let thumbnails = PDFThumbnailView(frame: .zero)
     private let split = NSSplitView()
-    private let tools: [ToolSpec]
+    private var tools: [ToolSpec]
     private let palette: ToolPaletteView
     let pageField = NSTextField()
     private let pageCountLabel = NSTextField(labelWithString: "")
@@ -178,6 +178,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     }
 
     func allTools() -> [ToolSpec] { tools }
+
+    /// Settings changed: rebuild the palette, keep the current tool if it still exists (with its new settings).
+    func updateTools(_ newTools: [ToolSpec]) {
+        tools = newTools
+        palette.reload(tools: newTools)
+        select(tool: newTools.first { $0.id == pdfView.tool.id } ?? .pointer)
+    }
 
     @objc func chooseTool(_ sender: NSMenuItem) {
         if let id = sender.representedObject as? String {

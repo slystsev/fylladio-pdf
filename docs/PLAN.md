@@ -18,10 +18,18 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Autosave (adaptive debounce) + position restore
 - [x] FolioCheck + UI self-test: all passing
 
-## Milestone 2: needs a human / next
+## Milestone 2: user feedback round 1 (done 2026-11-25)
+- [x] Underline/curly on non-text: point-to-point line (snap ≤5°, ⇧ flat)
+- [x] Freehand pen tool, smoothed, 3 colours by default (Q/W/E)
+- [x] Flatter curly underline (smooth sine, period 8)
+- [x] Settings window: per-tool colour/opacity/width/font/size/name/key, 1–5 per kind
+- [x] Move selected annotation (drag, arrow nudge), undo
+- [x] Tests extended (FolioCheck + UI self-test, 37 checks)
+
+## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
-- [ ] Move/resize existing annotations
+- [ ] Resize annotations; move across pages
 - [ ] Incremental-save writer (append only changed objects) so huge files save instantly
 - [ ] Crash journal (sidecar) for edits made inside the debounce window
 - [ ] App icon; Developer ID signing + notarization for distribution

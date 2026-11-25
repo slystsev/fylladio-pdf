@@ -4,7 +4,8 @@ import FolioCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var controllers: [DocumentWindowController] = []
-    private let tools = ToolConfig.load()
+    private(set) var tools = ToolConfig.load()
+    private var settings: SettingsWindowController?
     private var openedAtLaunch = false
     private let openFilesKey = "Folio.openFiles"
 
@@ -110,6 +111,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func clearRecent(_ sender: Any?) { NSDocumentController.shared.clearRecentDocuments(sender) }
 
+    @objc func showSettings(_ sender: Any?) {
+        if settings == nil {
+            let s = SettingsWindowController(tools: tools)
+            s.onSave = { [weak self] t in self?.apply(tools: t) }
+            settings = s
+        } else {
+            settings?.reset(tools: tools)
+        }
+        settings?.showWindow(nil)
+        settings?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    func apply(tools newTools: [ToolSpec]) {
+        tools = newTools
+        controllers.forEach { $0.updateTools(newTools) }
+        NSApp.mainMenu = buildMenu()
+    }
+
     @objc func revealToolsFile(_ sender: Any?) {
         NSWorkspace.shared.activateFileViewerSelecting([ToolConfig.fileURL])
     }
@@ -140,7 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         submenu("Folio") { m in
             add(m, "About Folio", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
             m.addItem(.separator())
-            add(m, "Edit Tools File…", #selector(revealToolsFile(_:)))
+            add(m, "Settings…", #selector(showSettings(_:)), ",")
+            add(m, "Reveal Tools File", #selector(revealToolsFile(_:)))
             add(m, "Show Backups Folder", #selector(revealBackups(_:)))
             m.addItem(.separator())
             add(m, "Hide Folio", #selector(NSApplication.hide(_:)), "h")
@@ -219,9 +239,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 m.addItem(i)
             }
             m.addItem(.separator())
-            let tip = NSMenuItem(title: "Hold ⌥ while dragging to mark a rectangle", action: nil, keyEquivalent: "")
-            tip.isEnabled = false
-            m.addItem(tip)
+            for line in ["⌥-drag: rectangle / free line even over text", "⇧-drag: keep lines horizontal",
+                         "Pointer: drag an annotation to move it, arrows nudge"] {
+                let tip = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+                tip.isEnabled = false
+                m.addItem(tip)
+            }
+            m.addItem(.separator())
+            add(m, "Configure Tools…", #selector(showSettings(_:)))
         }
         submenu("Window") { m in
             add(m, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")

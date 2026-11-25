@@ -24,10 +24,15 @@ colour pickers, no per-use settings.
 | D1 | Swift + AppKit + PDFKit, no SwiftUI | PDFKit is Apple's native renderer: lazy, tiled page rendering, low RAM. AppKit gives full control of mouse and keys. |
 | D2 | SwiftPM build plus `scripts/build-app.sh` to assemble `Folio.app` (ad-hoc signed) | Only Command Line Tools are installed, not Xcode. |
 | D3 | Annotations are standard PDF annotations saved **into the PDF** | Other apps (Preview, Acrobat) see them, and nothing needs syncing. |
-| D4 | Highlight and underline are *markup annotations with quad points*. On text, one quad per line. On non-text, one quad equal to the dragged rectangle. | One mechanism covers both cases. Scanned pages get a translucent box or a line under the box, which is valid PDF that every viewer renders. |
-| D4a | **Curly underline is an Ink annotation** (one wavy path per line), not /Squiggly. | Verified: PDFKit does not render /Squiggly at all. Ink renders everywhere. Trade-off: other apps list it as "ink", not "squiggly". |
+| D4 | Markers are /Highlight with quad points. On text, one quad per line. On non-text, one quad equal to the dragged rectangle. | One mechanism covers text and scans. |
+| D4a | **Underline, curly underline and pen are all /Ink** (dense polylines). | Verified: PDFKit does not render /Squiggly. Ink renders everywhere and makes the width configurable. Trade-off: other apps list them as "ink". (User feedback, round 2.) |
+| D4b | Underline and curly: a drag that starts on text snaps under each text line. Otherwise (or with ⌥) it is a **line from the start point to the end point**. Within 5° of horizontal it snaps flat; ⇧ forces flat. | User: "drawn at the bottom of the rectangle is counterintuitive; expect point to point." Snapping keeps hand-drawn underlines straight. |
+| D4c | Curly underline is a smooth sine: period 8 pt, amplitude 1.1 pt (was a 4.5 pt zig-zag). | User asked for flatter waves. Constants are in `AnnotationFactory`. |
+| D4d | Pen = freehand Ink: drop points under 0.8 pt apart, 1-2-1 moving average, then a Catmull-Rom curve sampled at about 1 pt. | Looks hand-drawn, not jagged, even for fast strokes. Ink stores only polylines, so curves are pre-sampled. |
+| D4e | The tool kind is stored in the author field `/T` = `Folio/<kind>`. | Verified: PDFKit drops /NM and custom keys on save but keeps /T. Needed for recolouring after reopen. |
 | D5 | Text vs rectangle is decided by **where the drag starts**: on a character → text mode, otherwise rectangle. Holding **Option** forces rectangle. | Predictable, and avoids the "highlight barely works" problem. |
-| D6 | Tools are a fixed list loaded from `~/Library/Application Support/Folio/tools.json` (written with defaults on first run). Keys 1–9 and 0 select tools, Esc returns to the pointer. A tool stays active after use, like holding a pen. | "All preconfigured." The file allows customisation without a settings UI. |
+| D6 | Tools come from `~/Library/Application Support/Folio/tools.json`, edited in **Settings (⌘,)**: colour, opacity (markers), width (lines and pens), font and size (text), name, optional one-key shortcut. **1–5 tools per kind** (assumed meaning of the user's "up to 5 tools"); the defaults are the current set plus 3 pens (Q/W/E). Esc/V = pointer. A tool stays active after use; its key again puts it down. An old tools.json missing a kind gets that kind's defaults. | "All preconfigured", but adjustable once without per-use pickers. |
+| D6a | Changing settings affects only new annotations. | Existing marks are part of the document. Right-click recolour exists for single changes. |
 | D7 | Autosave: every edit marks the document dirty, and it is written after an idle pause, on window close, on window resign-key, on app deactivate, and on quit. The write goes to a temp file and then an atomic replace. The pause is 1.5 s, or 3× the last save's duration for big files (capped at 10 s). The debounce uses GCD, not `Timer`. | Never lose edits, and never leave a half-written file. GCD fires during mouse tracking and scrolling. Verified: a 240 MB scan-like file takes about 2.3 s to save, so autosave must not interrupt active work. |
 | D8 | Before the first save of a file in each session, a backup copy goes to `~/Library/Application Support/Folio/Backups/` (APFS clone, so cheap). Keeps the last 30. | Insurance against PDFKit write bugs corrupting a file. |
 | D9 | Position (page, point, zoom) is stored per file path in UserDefaults and restored on open. Open windows are restored on relaunch. | "Keep position." |
@@ -35,7 +40,7 @@ colour pickers, no per-use settings.
 | D11 | Print uses `PDFDocument.printOperation` with the standard panel (page range, PDF menu). "Print Selected Pages…" prints the pages selected in the thumbnail sidebar. | System dialog, as requested. |
 | D12 | Thumbnail sidebar is hidden by default. | Saves RAM and CPU on large files. |
 | D13 | Single-key tool shortcuts are handled in the PDF view's `keyDown`, not as menu key equivalents. | Menu equivalents without modifiers would swallow typing in the search field. |
-| D14 | Annotations are selected and deleted in pointer mode: click selects (dashed outline), Delete removes it, double-click a text note edits it, and right-click offers delete or recolour. Full undo/redo. | Basic editing without extra modes. |
+| D14 | Pointer mode: click selects (dashed outline, open-hand cursor on hover), **drag moves**, arrows nudge 1 pt (⇧ 10 pt), Delete removes, double-click edits a note, right-click deletes or recolours. Full undo. Strokes are hit-tested near their path, not their bounding box. Moving works by shifting `bounds` (PDFKit stores quads and ink relative to it; verified to persist). | Basic editing without extra modes. |
 | D15 | Minimum macOS 13. | Current SDK, broad enough. |
 
 ## Default tools (`tools.json`)
@@ -76,7 +81,8 @@ colour pickers, no per-use settings.
   option is an incremental-update writer that appends only changed objects.
 - PDFKit can lose some exotic PDF features when rewriting (rare). D8 backups mitigate this.
 - Locked or encrypted PDFs, and read-only locations: the save fails, an alert offers "Save a Copy…", and the edits stay in memory.
-- Moving or resizing existing annotations is not supported in v1 (delete and redo instead).
+- Annotations can't be resized, and can't be moved to another page.
+- Toolbar palette grows with tool count (up to 25 + pointer); on narrow windows NSToolbar puts overflow in a » menu.
 
 ## Layout
 

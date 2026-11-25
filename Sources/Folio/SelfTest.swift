@@ -59,6 +59,15 @@ final class SelfTest {
         view.mouseUp(with: mouse(.leftMouseUp, wb, mods: mods))
     }
 
+    func dragPath(page: Int, _ pts: [NSPoint], mods: NSEvent.ModifierFlags = []) {
+        let w = pts.map { windowPoint(page: page, $0) }
+        view.mouseDown(with: mouse(.leftMouseDown, w[0], mods: mods))
+        for p in w.dropFirst() { view.mouseDragged(with: mouse(.leftMouseDragged, p, mods: mods)) }
+        view.mouseUp(with: mouse(.leftMouseUp, w.last!, mods: mods))
+    }
+
+    func last(_ page: Int) -> PDFAnnotation? { view.document!.page(at: page)!.annotations.last }
+
     func click(page: Int, _ p: NSPoint, clicks: Int = 1) {
         let w = windowPoint(page: page, p)
         view.mouseDown(with: mouse(.leftMouseDown, w, clicks: clicks))
@@ -117,7 +126,9 @@ final class SelfTest {
                 check(view.document!.page(at: 0)!.annotations.contains { $0.contents == "Red one" }, "red note committed by clicking elsewhere")
                 view.tool = .pointer; c.select(tool: .pointer)
                 snap("03-annotated")
-                check(c.window?.isDocumentEdited == true, "document marked edited")
+                // Either still pending, or already saved because the window lost focus (resign-key saves at once).
+                let onDisk = PDFDocument(url: c.url)!.page(at: 0)!.annotations.count == annCount(0)
+                check(c.window?.isDocumentEdited == true || onDisk, "edit pending or already saved")
             }),
             (2.5, { [self] in
                 check(c.window?.isDocumentEdited == false, "autosaved after idle")
@@ -149,6 +160,68 @@ final class SelfTest {
                     tv.string = "Edited note"; tv.doCommand(by: #selector(NSResponder.insertNewline(_:)))
                 }
                 check(view.document!.page(at: 0)!.annotations.contains { $0.contents == "Edited note" }, "double-click edits note")
+            }),
+            (0.2, { [self] in
+                // Underline on a non-text area: a free line from point to point, snapped flat when nearly horizontal.
+                key("5"); drag(page: 0, from: NSPoint(x: 70, y: 110), to: NSPoint(x: 370, y: 114))
+                check(last(0)?.type == "Ink" && (last(0)?.bounds.height ?? 99) < 8, "near-horizontal free underline snapped flat")
+                key("7"); drag(page: 0, from: NSPoint(x: 400, y: 90), to: NSPoint(x: 540, y: 150))
+                check((last(0)?.bounds.height ?? 0) > 50, "steep curly line follows the drag")
+                // Pen: freehand stroke
+                key("q"); check(view.tool.kind == .pen, "key q selects pen")
+                var stroke: [NSPoint] = []
+                for i in 0...30 { let a = Double(i) / 30 * 2 * .pi; stroke.append(NSPoint(x: 470 + 45 * cos(a), y: 420 + 22 * sin(a))) }
+                dragPath(page: 0, stroke)
+                let pen = last(0)
+                check(pen.flatMap { AnnotationFactory.kind(of: $0) } == .pen, "pen stroke added")
+                key("\u{1b}", code: 53)
+                check(view.tool.kind == .select, "Esc returns to pointer")
+            }),
+            (0.2, { [self] in
+                // Move the pen stroke by dragging it in pointer mode
+                let pen = view.document!.page(at: 0)!.annotations.last { AnnotationFactory.kind(of: $0) == .pen }!
+                let before = pen.bounds
+                dragPath(page: 0, [NSPoint(x: 515, y: 420), NSPoint(x: 500, y: 400), NSPoint(x: 465, y: 380)])
+                check(abs(pen.bounds.minX - (before.minX - 50)) < 0.5 && abs(pen.bounds.minY - (before.minY - 40)) < 0.5,
+                      "drag moves annotation by (-50,-40) (got \(pen.bounds.minX - before.minX), \(pen.bounds.minY - before.minY))")
+                snap("08-moved")
+            }),
+            (0.1, { [self] in
+                let pen = view.selectedAnnotation!
+                let x = pen.bounds.minX
+                key("", code: 124)
+                check(abs(pen.bounds.minX - (x + 1)) < 0.01, "right arrow nudges 1pt")
+                c.window?.undoManager?.undo()
+                check(abs(pen.bounds.minX - x) < 0.01, "undo nudge")
+            }),
+            (0.1, { [self] in
+                let pen = view.selectedAnnotation!
+                c.window?.undoManager?.undo()
+                check(abs(pen.bounds.midX - 470) < 3, "undo move puts stroke back")
+            }),
+            (2.2, { [self] in
+                let disk = PDFDocument(url: c.url)!.page(at: 0)!.annotations
+                check(disk.contains { AnnotationFactory.kind(of: $0) == .pen && abs($0.bounds.midX - 470) < 3 }, "pen stroke autosaved at its position")
+                // Settings: add a 4th pen, recolour black pen; palette and shortcuts follow
+                var t = app.tools
+                t.insert(ToolSpec(id: "pen-green", kind: .pen, name: "Green pen", color: "22AA22", key: "r", width: 2), at: t.lastIndex { $0.kind == .pen }! + 1)
+                app.apply(tools: t)
+                check(c.allTools().count == t.count, "window got new tools")
+                key("r"); check(view.tool.id == "pen-green", "new pen shortcut works")
+                key("\u{1b}", code: 53)
+                app.showSettings(nil)
+            }),
+            (0.6, { [self] in
+                if let w = NSApp.windows.first(where: { $0.title == "Tools" }), let v = w.contentView {
+                    let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds)!
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("09-settings.png"))
+                    check(true, "settings window opens")
+                    w.close()
+                } else { check(false, "settings window opens") }
+                app.apply(tools: ToolConfig.defaults)
+            }),
+            (0.1, { [self] in
                 // Search
                 c.searchField.stringValue = "line 7"
                 c.searchEntered()

@@ -14,6 +14,14 @@ final class ToolPaletteView: NSStackView {
         super.init(frame: .zero)
         orientation = .horizontal
         spacing = 2
+        reload(tools: tools)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Rebuilds the buttons (after the tools were edited in Settings).
+    func reload(tools: [ToolSpec]) {
+        for v in arrangedSubviews { removeArrangedSubview(v); v.removeFromSuperview() }
+        buttons = []
         var last: ToolKind? = nil
         for t in [ToolSpec.pointer] + tools {
             if let l = last, l != t.kind {
@@ -27,14 +35,14 @@ final class ToolPaletteView: NSStackView {
             b.isBordered = true
             b.imagePosition = .imageOnly
             b.toolTip = t.key.map { "\(t.name)  (\($0))" } ?? "\(t.name)  (Esc / V)"
-            b.widthAnchor.constraint(equalToConstant: 30).isActive = true
+            b.widthAnchor.constraint(equalToConstant: 28).isActive = true
             b.tag = buttons.count
             buttons.append((t, b))
             addArrangedSubview(b)
         }
-        selectedID = ToolSpec.pointer.id
+        let keep = selectedID
+        selectedID = buttons.contains { $0.0.id == keep } ? keep : ToolSpec.pointer.id
     }
-    required init?(coder: NSCoder) { fatalError() }
 
     @objc private func clicked(_ sender: NSButton) {
         let t = buttons[sender.tag].0
@@ -69,6 +77,12 @@ final class ToolPaletteView: NSStackView {
                 p.move(to: NSPoint(x: 2, y: 3))
                 var x: CGFloat = 2; var up = true
                 while x < 18 { x += 2; p.line(to: NSPoint(x: x, y: up ? 5 : 1.5)); up.toggle() }
+                solid.setStroke(); p.stroke()
+            case .pen:
+                let p = NSBezierPath(); p.lineWidth = 1.8; p.lineCapStyle = .round; p.lineJoinStyle = .round
+                p.move(to: NSPoint(x: 3, y: 5))
+                p.curve(to: NSPoint(x: 10, y: 10), controlPoint1: NSPoint(x: 5, y: 14), controlPoint2: NSPoint(x: 8, y: 2))
+                p.curve(to: NSPoint(x: 17, y: 13), controlPoint1: NSPoint(x: 12, y: 17), controlPoint2: NSPoint(x: 15, y: 6))
                 solid.setStroke(); p.stroke()
             case .text:
                 Self.drawLetter("T", in: NSRect(x: 0, y: 1, width: 20, height: 16), color: solid, bold: true)

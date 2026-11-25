@@ -2,26 +2,28 @@ import AppKit
 import PDFKit
 
 /// Builds PDF annotations for the stationery tools. No UI dependencies, so it can be checked headlessly.
+///
+/// - Markers → /Highlight with quad points (text lines or a dragged rectangle).
+/// - Underline, curly underline, pen → /Ink with dense polylines. Ink renders in every viewer and lets the
+///   width be configured; PDFKit does not render /Squiggly at all.
+/// - Text → /FreeText.
+/// Every annotation's author (/T) is "Folio/<kind>" so the tool kind survives save/reload
+/// (verified: PDFKit drops /NM and custom keys when writing, but keeps /T).
 public enum AnnotationFactory {
     public static let authorTag = "Folio"
 
-    static func subtype(for kind: ToolKind) -> PDFAnnotationSubtype? {
-        switch kind {
-        case .marker: return .highlight
-        case .underline: return .underline
-        default: return nil
-        }
-    }
+    // Curly underline shape: a flat sine wave.
+    public static let wavePeriod: CGFloat = 8.0
+    public static let waveAmplitude: CGFloat = 1.1
 
-    /// A markup annotation (highlight / underline / squiggly) covering `rects` (page coordinates).
-    /// Works for real text lines and for arbitrary rectangles on scanned pages alike.
-    public static func markup(tool: ToolSpec, rects: [NSRect]) -> PDFAnnotation? {
+    // MARK: Markers
+
+    /// A highlight covering `rects` (page coordinates): real text lines or an arbitrary rectangle on a scan.
+    public static func highlight(tool: ToolSpec, rects: [NSRect]) -> PDFAnnotation? {
         let rects = rects.filter { $0.width > 0.5 && $0.height > 0.5 }
         guard let first = rects.first else { return nil }
         let bounds = rects.dropFirst().reduce(first) { $0.union($1) }
-        if tool.kind == .squiggly { return squiggle(tool: tool, rects: rects, bounds: bounds) }
-        guard let type = subtype(for: tool.kind) else { return nil }
-        let ann = PDFAnnotation(bounds: bounds, forType: type, withProperties: nil)
+        let ann = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
         ann.color = tool.nsColor
         var pts: [NSValue] = []
         for r in rects {
@@ -32,59 +34,123 @@ public enum AnnotationFactory {
             pts.append(NSValue(point: NSPoint(x: r.maxX - bounds.minX, y: r.minY - bounds.minY)))
         }
         ann.quadrilateralPoints = pts
-        stamp(ann)
+        stamp(ann, kind: .marker)
         return ann
     }
 
-    /// PDFKit does not render /Squiggly annotations, so curly underlines are Ink annotations
-    /// (one wavy path per line), which every viewer draws.
-    static func squiggle(tool: ToolSpec, rects: [NSRect], bounds: NSRect) -> PDFAnnotation {
-        let amp: CGFloat = 1.4
-        let period: CGFloat = 4.5
-        let outer = bounds.insetBy(dx: -2, dy: -(amp + 2))
-        let ann = PDFAnnotation(bounds: outer, forType: .ink, withProperties: nil)
-        for r in rects {
-            let path = NSBezierPath()
-            let baseY = r.minY - outer.minY
-            var x = r.minX - outer.minX
-            let endX = r.maxX - outer.minX
-            var up = true
-            path.move(to: NSPoint(x: x, y: baseY))
-            while x < endX {
-                let nx = min(x + period / 2, endX)
-                path.line(to: NSPoint(x: nx, y: baseY + (up ? amp : -amp)))
-                up.toggle(); x = nx
+    // MARK: Lines (underline / curly)
+
+    /// Underline segments under text lines (page coordinates of each line's bounds).
+    public static func segmentsUnder(lines rects: [NSRect], kind: ToolKind) -> [(NSPoint, NSPoint)] {
+        rects.filter { $0.width > 0.5 }.map { r in
+            // Selection line bounds include the descender; the baseline sits roughly 20% up.
+            let y = kind == .squiggly ? r.minY + waveAmplitude * 0.5 : r.minY + r.height * 0.12
+            return (NSPoint(x: r.minX, y: y), NSPoint(x: r.maxX, y: y))
+        }
+    }
+
+    /// Straight or wavy line(s), from point to point, for an underline or curly tool.
+    public static func line(tool: ToolSpec, segments: [(NSPoint, NSPoint)]) -> PDFAnnotation? {
+        let polylines: [[NSPoint]] = segments.compactMap { a, b in
+            guard hypot(b.x - a.x, b.y - a.y) >= 2 else { return nil }
+            return tool.kind == .squiggly ? wave(from: a, to: b) : [a, b]
+        }
+        return ink(tool: tool, polylines: polylines, kind: tool.kind)
+    }
+
+    /// Dense samples of a sine wave running from a to b.
+    static func wave(from a: NSPoint, to b: NSPoint) -> [NSPoint] {
+        let len = hypot(b.x - a.x, b.y - a.y)
+        let d = NSPoint(x: (b.x - a.x) / len, y: (b.y - a.y) / len)
+        let n = NSPoint(x: -d.y, y: d.x)
+        let step: CGFloat = 0.5
+        var pts: [NSPoint] = []
+        var s: CGFloat = 0
+        while s <= len {
+            let off = waveAmplitude * sin(2 * .pi * s / wavePeriod)
+            pts.append(NSPoint(x: a.x + d.x * s + n.x * off, y: a.y + d.y * s + n.y * off))
+            s += step
+        }
+        return pts
+    }
+
+    // MARK: Pen
+
+    /// A freehand stroke, lightly smoothed so it looks hand-drawn rather than jagged.
+    public static func freehand(tool: ToolSpec, points raw: [NSPoint]) -> PDFAnnotation? {
+        let pts = smooth(raw)
+        guard pts.count >= 2 else {
+            // A click: draw a dot.
+            guard let p = raw.first else { return nil }
+            return ink(tool: tool, polylines: [[p, NSPoint(x: p.x + 0.3, y: p.y)]], kind: .pen)
+        }
+        return ink(tool: tool, polylines: [pts], kind: .pen)
+    }
+
+    /// Drops near-duplicate points, averages out mouse jitter, then interpolates a Catmull-Rom curve
+    /// so fast strokes (sparse mouse samples) stay round.
+    public static func smooth(_ raw: [NSPoint]) -> [NSPoint] {
+        var pts: [NSPoint] = []
+        for p in raw where pts.last.map({ hypot(p.x - $0.x, p.y - $0.y) >= 0.8 }) ?? true { pts.append(p) }
+        guard pts.count >= 3 else { return pts }
+        // Weighted moving average (1-2-1), endpoints kept.
+        var avg = pts
+        for i in 1..<(pts.count - 1) {
+            avg[i] = NSPoint(x: (pts[i - 1].x + 2 * pts[i].x + pts[i + 1].x) / 4,
+                             y: (pts[i - 1].y + 2 * pts[i].y + pts[i + 1].y) / 4)
+        }
+        // Catmull-Rom, ~1pt spacing.
+        var out: [NSPoint] = [avg[0]]
+        for i in 0..<(avg.count - 1) {
+            let p0 = avg[max(i - 1, 0)], p1 = avg[i], p2 = avg[i + 1], p3 = avg[min(i + 2, avg.count - 1)]
+            let n = max(1, Int(hypot(p2.x - p1.x, p2.y - p1.y)))
+            for k in 1...n {
+                let t = CGFloat(k) / CGFloat(n), t2 = t * t, t3 = t2 * t
+                func cr(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat) -> CGFloat {
+                    0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+                }
+                out.append(NSPoint(x: cr(p0.x, p1.x, p2.x, p3.x), y: cr(p0.y, p1.y, p2.y, p3.y)))
             }
+        }
+        return out
+    }
+
+    // MARK: Ink builder
+
+    static func ink(tool: ToolSpec, polylines: [[NSPoint]], kind: ToolKind) -> PDFAnnotation? {
+        let lines = polylines.filter { $0.count >= 2 }
+        guard !lines.isEmpty else { return nil }
+        let all = lines.flatMap { $0 }
+        let pad = tool.lineWidth + 2
+        let minX = all.map(\.x).min()! - pad, maxX = all.map(\.x).max()! + pad
+        let minY = all.map(\.y).min()! - pad, maxY = all.map(\.y).max()! + pad
+        let bounds = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        let ann = PDFAnnotation(bounds: bounds, forType: .ink, withProperties: nil)
+        for line in lines {
+            let path = NSBezierPath()
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.move(to: NSPoint(x: line[0].x - minX, y: line[0].y - minY))
+            for p in line.dropFirst() { path.line(to: NSPoint(x: p.x - minX, y: p.y - minY)) }
             ann.add(path)
         }
         ann.color = tool.nsColor
         let border = PDFBorder()
-        border.lineWidth = 1.0
+        border.lineWidth = tool.lineWidth
         ann.border = border
-        ann.setValue(squiggleMarker, forAnnotationKey: PDFAnnotationKey(rawValue: "/FolioKind"))
-        stamp(ann)
+        stamp(ann, kind: kind)
         return ann
     }
 
-    static let squiggleMarker = "squiggly"
-
-    /// True if a real character sits under `point` (characterIndex(at:) alone returns the nearest one).
-    public static func hasCharacter(on page: PDFPage, at point: NSPoint) -> Bool {
-        let n = page.numberOfCharacters
-        let i = page.characterIndex(at: point) // NSNotFound when nothing is near
-        if i >= 0, i < n {
-            for j in max(0, i - 1)...min(i + 1, n - 1) {
-                if page.characterBounds(at: j).insetBy(dx: -2, dy: -2).contains(point) { return true }
-            }
-        }
-        // Fallback: any non-blank text in a small box around the point.
-        let probe = NSRect(x: point.x - 1.5, y: point.y - 1.5, width: 3, height: 3)
-        let s = page.selection(for: probe)?.string ?? ""
-        return !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    // MARK: Text
 
     public static func textFont(_ tool: ToolSpec) -> NSFont {
-        NSFont(name: "Helvetica", size: CGFloat(tool.fontSize ?? 12)) ?? .systemFont(ofSize: CGFloat(tool.fontSize ?? 12))
+        let size = CGFloat(tool.fontSize ?? 12)
+        if let name = tool.fontName {
+            if let f = NSFont(name: name, size: size) { return f }
+            if let f = NSFontManager.shared.font(withFamily: name, traits: [], weight: 5, size: size) { return f }
+        }
+        return NSFont(name: "Helvetica", size: size) ?? .systemFont(ofSize: size)
     }
 
     /// Size the text occupies on the page, including a small padding.
@@ -107,18 +173,94 @@ public enum AnnotationFactory {
         let border = PDFBorder()
         border.lineWidth = 0
         ann.border = border
-        stamp(ann)
+        stamp(ann, kind: .text)
         return ann
     }
 
-    static func stamp(_ ann: PDFAnnotation) {
-        ann.userName = authorTag
+    // MARK: Identity, hit testing, moving
+
+    static func stamp(_ ann: PDFAnnotation, kind: ToolKind) {
+        ann.userName = "\(authorTag)/\(kind.rawValue)"
         ann.modificationDate = Date()
     }
 
-    /// Annotations the user may select and delete (not links, form widgets, etc.).
+    /// The tool kind an annotation belongs to (Folio's tag, else guessed from its PDF type).
+    public static func kind(of ann: PDFAnnotation) -> ToolKind? {
+        if let t = ann.userName, t.hasPrefix(authorTag + "/"), let k = ToolKind(rawValue: String(t.dropFirst(authorTag.count + 1))) {
+            return k
+        }
+        switch ann.type {
+        case "Highlight": return .marker
+        case "Underline", "StrikeOut": return .underline
+        case "Squiggly": return .squiggly
+        case "Ink": return .pen
+        case "FreeText": return .text
+        default: return nil
+        }
+    }
+
+    /// Annotations the user may select, move and delete (not links, form widgets, etc.).
     public static func isEditable(_ ann: PDFAnnotation) -> Bool {
         guard let t = ann.type else { return false }
         return ["Highlight", "Underline", "Squiggly", "StrikeOut", "FreeText", "Square", "Ink", "Text", "Line", "Circle"].contains(t)
+    }
+
+    /// Precise hit test: strokes are hit near their path, not anywhere in their bounding box.
+    public static func hits(_ ann: PDFAnnotation, at pt: NSPoint, tolerance: CGFloat = 4) -> Bool {
+        let b = ann.bounds
+        guard b.insetBy(dx: -tolerance, dy: -tolerance).contains(pt) else { return false }
+        if ann.type == "Ink", let paths = ann.paths, !paths.isEmpty {
+            let local = NSPoint(x: pt.x - b.minX, y: pt.y - b.minY)
+            for path in paths {
+                let stroke = CGPath.from(path).copy(strokingWithWidth: max(ann.border?.lineWidth ?? 1, 1) + 2 * tolerance,
+                                                    lineCap: .round, lineJoin: .round, miterLimit: 10)
+                if stroke.contains(local) { return true }
+            }
+            return false
+        }
+        return true
+    }
+
+    /// Moves an annotation by `delta` (page coordinates). Quad points and ink paths are stored
+    /// relative to the bounds in PDFKit, so shifting the bounds moves the whole thing.
+    public static func move(_ ann: PDFAnnotation, by delta: NSPoint) {
+        var b = ann.bounds
+        b.origin.x += delta.x
+        b.origin.y += delta.y
+        ann.bounds = b
+        ann.modificationDate = Date()
+    }
+
+    /// True if a real character sits under `point` (characterIndex(at:) alone returns the nearest one).
+    public static func hasCharacter(on page: PDFPage, at point: NSPoint) -> Bool {
+        let n = page.numberOfCharacters
+        let i = page.characterIndex(at: point) // NSNotFound when nothing is near
+        if i >= 0, i < n {
+            for j in max(0, i - 1)...min(i + 1, n - 1) {
+                if page.characterBounds(at: j).insetBy(dx: -2, dy: -2).contains(point) { return true }
+            }
+        }
+        // Fallback: any non-blank text in a small box around the point.
+        let probe = NSRect(x: point.x - 1.5, y: point.y - 1.5, width: 3, height: 3)
+        let s = page.selection(for: probe)?.string ?? ""
+        return !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+extension CGPath {
+    static func from(_ p: NSBezierPath) -> CGPath {
+        let path = CGMutablePath()
+        var pts = [NSPoint](repeating: .zero, count: 3)
+        for i in 0..<p.elementCount {
+            switch p.element(at: i, associatedPoints: &pts) {
+            case .moveTo: path.move(to: pts[0])
+            case .lineTo: path.addLine(to: pts[0])
+            case .curveTo, .cubicCurveTo: path.addCurve(to: pts[2], control1: pts[0], control2: pts[1])
+            case .quadraticCurveTo: path.addQuadCurve(to: pts[1], control: pts[0])
+            case .closePath: path.closeSubpath()
+            @unknown default: break
+            }
+        }
+        return path
     }
 }

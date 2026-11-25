@@ -61,17 +61,36 @@ for (id, line) in rows {
     let sel = doc.selection(from: page, at: NSPoint(x: 52, y: y + 5), to: page, at: NSPoint(x: 400, y: y + 5))!
     let rects = sel.selectionsByLine().map { $0.bounds(for: page) }
     check(!(sel.string ?? "").isEmpty, "text selection for \(id): \(sel.string ?? "")")
-    page.addAnnotation(AnnotationFactory.markup(tool: tool(id), rects: rects)!)
+    let t = tool(id)
+    let ann = t.kind == .marker ? AnnotationFactory.highlight(tool: t, rects: rects)!
+        : AnnotationFactory.line(tool: t, segments: AnnotationFactory.segmentsUnder(lines: rects, kind: t.kind))!
+    page.addAnnotation(ann)
 }
 // Multi-line selection
 let multi = doc.selection(from: page, at: NSPoint(x: 200, y: 740 - 9 * 22 + 5), to: page, at: NSPoint(x: 150, y: 740 - 11 * 22 + 5))!
 let mrects = multi.selectionsByLine().map { $0.bounds(for: page) }
 check(mrects.count == 3, "multi-line selection yields 3 line rects (got \(mrects.count))")
-page.addAnnotation(AnnotationFactory.markup(tool: tool("marker-pink"), rects: mrects)!)
+page.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-pink"), rects: mrects)!)
 // Rectangle markups on the "scan"
-page.addAnnotation(AnnotationFactory.markup(tool: tool("marker-blue"), rects: [NSRect(x: 65, y: 195, width: 310, height: 22)])!)
-page.addAnnotation(AnnotationFactory.markup(tool: tool("underline-red"), rects: [NSRect(x: 65, y: 160, width: 310, height: 22)])!)
-page.addAnnotation(AnnotationFactory.markup(tool: tool("squiggly-blue"), rects: [NSRect(x: 65, y: 120, width: 310, height: 22)])!)
+page.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-blue"), rects: [NSRect(x: 65, y: 195, width: 310, height: 22)])!)
+// Point-to-point lines on the "scan": straight, curly, and a slanted one
+page.addAnnotation(AnnotationFactory.line(tool: tool("underline-red"), segments: [(NSPoint(x: 65, y: 160), NSPoint(x: 375, y: 160))])!)
+page.addAnnotation(AnnotationFactory.line(tool: tool("squiggly-blue"), segments: [(NSPoint(x: 65, y: 120), NSPoint(x: 375, y: 120))])!)
+page.addAnnotation(AnnotationFactory.line(tool: tool("squiggly-red"), segments: [(NSPoint(x: 400, y: 100), NSPoint(x: 540, y: 160))])!)
+// Freehand: a hand-drawn loop with sparse, jittery samples
+var loop: [NSPoint] = []
+for i in 0...24 { let a = Double(i) / 24 * 2 * .pi; loop.append(NSPoint(x: 470 + 40 * cos(a) + Double(i % 3) * 0.8, y: 380 + 25 * sin(a))) }
+let pen = AnnotationFactory.freehand(tool: tool("pen-blue"), points: loop)!
+page.addAnnotation(pen)
+check(AnnotationFactory.hits(pen, at: NSPoint(x: 510, y: 380)), "pen stroke hit on path")
+check(!AnnotationFactory.hits(pen, at: NSPoint(x: 470, y: 380)), "pen stroke not hit in loop's empty middle")
+// Moving: a highlight, an ink line and a note
+let movable = AnnotationFactory.highlight(tool: tool("marker-green"), rects: [NSRect(x: 50, y: 300, width: 80, height: 14)])!
+page.addAnnotation(movable)
+AnnotationFactory.move(movable, by: NSPoint(x: 400, y: 0))
+let movedPen = AnnotationFactory.freehand(tool: tool("pen-red"), points: loop.map { NSPoint(x: $0.x - 380, y: $0.y - 60) })!
+page.addAnnotation(movedPen)
+AnnotationFactory.move(movedPen, by: NSPoint(x: 0, y: -40))
 page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-red"), text: "Red note\nsecond line", topLeft: NSPoint(x: 420, y: 270)))
 page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-black"), text: "Black note", topLeft: NSPoint(x: 420, y: 200)))
 render(page, to: outDir.appendingPathComponent("annotated-memory.png"))
@@ -81,13 +100,26 @@ let n = page.annotations.count
 try time("save small") { try SafeSaver.save(doc, to: small) }
 let reloaded = PDFDocument(url: small)!
 check(reloaded.page(at: 0)!.annotations.count == n, "annotations survive save/reload (\(n))")
-check(reloaded.page(at: 0)!.annotations.contains { $0.type == "Ink" }, "squiggly persisted")
+check(reloaded.page(at: 0)!.annotations.contains { $0.type == "Ink" }, "ink persisted")
+let kinds = reloaded.page(at: 0)!.annotations.compactMap { AnnotationFactory.kind(of: $0) }
+check(kinds.contains(.squiggly) && kinds.contains(.underline) && kinds.contains(.pen) && kinds.contains(.text), "tool kinds survive reload via /NM tag")
+let mv = reloaded.page(at: 0)!.annotations.first { $0.type == "Highlight" && abs($0.bounds.minX - 450) < 0.5 }
+check(mv != nil, "moved highlight persisted at new position")
+let mp = reloaded.page(at: 0)!.annotations.first { AnnotationFactory.kind(of: $0) == .pen && $0.bounds.minY < 300 }
+check(mp != nil, "moved pen stroke persisted at new position")
+check(ToolConfig.validate(ToolConfig.defaults).isEmpty, "default tools valid")
+var bad = ToolConfig.defaults; bad[1].key = "1"
+check(!ToolConfig.validate(bad).isEmpty, "duplicate shortcut rejected")
+check(!ToolConfig.validate(ToolConfig.defaults.filter { $0.kind != .pen }).isEmpty, "empty kind rejected")
+let tmpTools = outDir.appendingPathComponent("tools-old.json")
+try JSONEncoder().encode(ToolConfig.defaults.filter { $0.kind != .pen }).write(to: tmpTools)
+check(ToolConfig.load(from: tmpTools).filter { $0.kind == .pen }.count == 3, "old tools.json gains default pens")
 render(reloaded.page(at: 0)!, to: outDir.appendingPathComponent("annotated-reloaded.png"))
 // Original in-memory document still renders pages after its file was replaced
 render(doc.page(at: 2)!, to: outDir.appendingPathComponent("after-replace-page3.png"))
 check((doc.page(at: 2)!.string ?? "").contains("Page 3 line 1"), "open document still reads after file replaced")
 // Save twice more from the same in-memory doc (repeat autosaves)
-page.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 300, width: 100, height: 20)])!)
+page.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 300, width: 100, height: 20)])!)
 try SafeSaver.save(doc, to: small)
 try SafeSaver.save(doc, to: small)
 check(PDFDocument(url: small)!.page(at: 0)!.annotations.count == n + 1, "repeated saves consistent")
@@ -101,12 +133,12 @@ print("INFO large.pdf size \(size / 1_000_000) MB")
 let big = time("open large") { PDFDocument(url: large)! }
 _ = time("page count") { big.pageCount }
 let bp = big.page(at: big.pageCount / 2)!
-bp.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 730, width: 300, height: 20)])!)
+bp.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 730, width: 300, height: 20)])!)
 let work = outDir.appendingPathComponent("large-work.pdf")
 try? FileManager.default.removeItem(at: work)
 try FileManager.default.copyItem(at: large, to: work)
 let bigw = PDFDocument(url: work)!
-bigw.page(at: 10)!.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 730, width: 300, height: 20)])!)
+bigw.page(at: 10)!.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 730, width: 300, height: 20)])!)
 try time("save large") { try SafeSaver.save(bigw, to: work) }
 check(PDFDocument(url: work)!.page(at: 10)!.annotations.count == 1, "large save persisted")
 
@@ -138,7 +170,7 @@ if let hp = ProcessInfo.processInfo.environment["FOLIO_HEAVY"].flatMap(Int.init)
     try? FileManager.default.removeItem(at: hw)
     try FileManager.default.copyItem(at: heavy, to: hw)
     let hd = time("open heavy") { PDFDocument(url: hw)! }
-    hd.page(at: 5)!.addAnnotation(AnnotationFactory.markup(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 700, width: 300, height: 20)])!)
+    hd.page(at: 5)!.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 700, width: 300, height: 20)])!)
     try time("save heavy") { try SafeSaver.save(hd, to: hw) }
     let hsize2 = (try? FileManager.default.attributesOfItem(atPath: hw.path)[.size] as? Int) ?? 0
     print("INFO heavy after save \(hsize2 / 1_000_000) MB")

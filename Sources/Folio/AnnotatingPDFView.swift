@@ -17,11 +17,16 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         didSet { endTextEntry(commit: true); selectedAnnotation = nil; window?.invalidateCursorRects(for: self) }
     }
 
-    // Drag state
+    // Drag state (creating)
     private var dragPage: PDFPage?
     private var dragStart: NSPoint = .zero
     private var dragTextMode = false
+    private var penPoints: [NSPoint] = []
     private var previews: [(PDFPage, PDFAnnotation)] = []
+
+    // Drag state (moving an existing annotation)
+    private struct Move { let ann: PDFAnnotation; let page: PDFPage; let start: NSPoint; let original: NSRect; var moved: Bool }
+    private var moving: Move?
 
     // Text entry
     private var editor: NSTextView?
@@ -82,7 +87,8 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         case .select:
             if let ann = editableAnnotation(on: page, at: pt) {
                 selectedAnnotation = ann
-                if event.clickCount == 2, ann.type == "FreeText" { beginEditing(ann, on: page) }
+                if event.clickCount == 2, ann.type == "FreeText" { beginEditing(ann, on: page); return }
+                moving = Move(ann: ann, page: page, start: pt, original: ann.bounds, moved: false)
                 return
             }
             selectedAnnotation = nil
@@ -98,21 +104,52 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
             dragPage = page
             dragStart = pt
             dragTextMode = !event.modifierFlags.contains(.option) && AnnotationFactory.hasCharacter(on: page, at: pt)
+        case .pen:
+            dragPage = page
+            dragStart = pt
+            penPoints = [pt]
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if var m = moving {
+            guard let (p, pt) = pagePoint(event) else { return }
+            let local = p == m.page ? pt : convert(convert(pt, from: p), to: m.page)
+            var r = m.original.offsetBy(dx: local.x - m.start.x, dy: local.y - m.start.y)
+            // Keep it on the page.
+            let pb = m.page.bounds(for: displayBox)
+            r.origin.x = min(max(r.minX, pb.minX - r.width / 2), pb.maxX - r.width / 2)
+            r.origin.y = min(max(r.minY, pb.minY - r.height / 2), pb.maxY - r.height / 2)
+            m.ann.bounds = r
+            m.moved = true
+            moving = m
+            annotationsChanged(on: m.page)
+            updateSelectionOutline()
+            autoscroll(with: event)
+            return
+        }
         guard dragPage != nil else { if !consumedMouse { super.mouseDragged(with: event) }; return }
         autoscroll(with: event)
         updatePreview(event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        if let m = moving {
+            moving = nil
+            consumedMouse = false
+            if m.moved {
+                let final = m.ann.bounds
+                m.ann.bounds = m.original
+                setBounds(m.ann, final, actionName: "Move Annotation")
+            }
+            return
+        }
         guard dragPage != nil else { if !consumedMouse { super.mouseUp(with: event) }; consumedMouse = false; return }
         consumedMouse = false
         updatePreview(event)
         let made = previews
         previews = []
+        penPoints = []
         dragPage = nil
         guard !made.isEmpty else { return }
         for (page, ann) in made { page.removeAnnotation(ann) }
@@ -121,8 +158,14 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
 
     override func mouseMoved(with event: NSEvent) {
         switch tool.kind {
-        case .select: super.mouseMoved(with: event)
+        case .select:
+            if let (page, pt) = pagePoint(event), editableAnnotation(on: page, at: pt) != nil {
+                NSCursor.openHand.set()
+            } else {
+                super.mouseMoved(with: event)
+            }
         case .text: NSCursor.iBeam.set()
+        case .pen: NSCursor.crosshair.set()
         default:
             if let (page, pt) = pagePoint(event), !event.modifierFlags.contains(.option),
                AnnotationFactory.hasCharacter(on: page, at: pt) {
@@ -133,44 +176,75 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         }
     }
 
+    /// Lines within this angle of horizontal snap flat (Shift always does).
+    private let snapAngle: CGFloat = 5 * .pi / 180
+
     private func updatePreview(_ event: NSEvent) {
         guard let startPage = dragPage, let doc = document, let (curPage, curPt) = pagePoint(event) else { return }
         for (p, a) in previews { p.removeAnnotation(a) }
         previews = []
-        var perPage: [(PDFPage, [NSRect])] = []
-        if dragTextMode {
+        let end = curPage == startPage ? curPt : convert(convert(curPt, from: curPage), to: startPage)
+        var made: [(PDFPage, PDFAnnotation)] = []
+
+        if tool.kind == .pen {
+            penPoints.append(end)
+            if let a = AnnotationFactory.freehand(tool: tool, points: penPoints) { made = [(startPage, a)] }
+        } else if dragTextMode {
             if let sel = doc.selection(from: startPage, at: dragStart, to: curPage, at: curPt) {
-                var byPage: [ObjectIdentifier: (PDFPage, [NSRect])] = [:]
-                var order: [ObjectIdentifier] = []
-                for line in sel.selectionsByLine() {
-                    for p in line.pages {
-                        let r = line.bounds(for: p)
-                        guard r.width > 0.5 else { continue }
-                        let k = ObjectIdentifier(p)
-                        if byPage[k] == nil { byPage[k] = (p, []); order.append(k) }
-                        byPage[k]!.1.append(r)
-                    }
+                for (page, rects) in linesByPage(sel) {
+                    let a = tool.kind == .marker
+                        ? AnnotationFactory.highlight(tool: tool, rects: rects)
+                        : AnnotationFactory.line(tool: tool, segments: AnnotationFactory.segmentsUnder(lines: rects, kind: tool.kind))
+                    if let a { made.append((page, a)) }
                 }
-                perPage = order.map { byPage[$0]! }
             }
-        } else {
-            let end = curPage == startPage ? curPt : convert(convert(curPt, from: curPage), to: startPage)
+        } else if tool.kind == .marker {
             var r = NSRect(x: min(dragStart.x, end.x), y: min(dragStart.y, end.y),
                            width: abs(end.x - dragStart.x), height: abs(end.y - dragStart.y))
             r = r.intersection(startPage.bounds(for: displayBox))
-            if r.width >= 3, r.height >= 3 { perPage = [(startPage, [r])] }
+            if r.width >= 3, r.height >= 3, let a = AnnotationFactory.highlight(tool: tool, rects: [r]) { made = [(startPage, a)] }
+        } else {
+            // Underline / curly on non-text: a line from where the drag started to where the pointer is.
+            var e = end
+            let dx = e.x - dragStart.x, dy = e.y - dragStart.y
+            if event.modifierFlags.contains(.shift) || abs(dy) <= abs(dx) * tan(snapAngle) { e.y = dragStart.y }
+            if let a = AnnotationFactory.line(tool: tool, segments: [(dragStart, e)]) { made = [(startPage, a)] }
         }
-        for (page, rects) in perPage {
-            if let ann = AnnotationFactory.markup(tool: tool, rects: rects) {
-                page.addAnnotation(ann)
-                previews.append((page, ann))
+        for (page, a) in made { page.addAnnotation(a) }
+        previews = made
+    }
+
+    private func linesByPage(_ sel: PDFSelection) -> [(PDFPage, [NSRect])] {
+        var byPage: [ObjectIdentifier: (PDFPage, [NSRect])] = [:]
+        var order: [ObjectIdentifier] = []
+        for line in sel.selectionsByLine() {
+            for p in line.pages {
+                let r = line.bounds(for: p)
+                guard r.width > 0.5 else { continue }
+                let k = ObjectIdentifier(p)
+                if byPage[k] == nil { byPage[k] = (p, []); order.append(k) }
+                byPage[k]!.1.append(r)
             }
         }
+        return order.map { byPage[$0]! }
     }
 
     private func editableAnnotation(on page: PDFPage, at pt: NSPoint) -> PDFAnnotation? {
-        // Topmost first; quad-based markups are hit-tested by their bounds.
-        page.annotations.reversed().first { AnnotationFactory.isEditable($0) && $0.bounds.insetBy(dx: -2, dy: -2).contains(pt) }
+        // Topmost first. Strokes are hit near their path; boxes anywhere inside.
+        let tol = max(3, 5 / max(scaleFactor, 0.1))
+        return page.annotations.reversed().first { AnnotationFactory.isEditable($0) && AnnotationFactory.hits($0, at: pt, tolerance: tol) }
+    }
+
+    /// Changes an annotation's bounds (i.e. moves it) with undo.
+    func setBounds(_ ann: PDFAnnotation, _ r: NSRect, actionName: String) {
+        let old = ann.bounds
+        ann.bounds = r
+        ann.modificationDate = Date()
+        if let p = ann.page { annotationsChanged(on: p) }
+        undoManager?.registerUndo(withTarget: self) { $0.setBounds(ann, old, actionName: actionName) }
+        undoManager?.setActionName(actionName)
+        updateSelectionOutline()
+        annotationDelegate?.annotationsDidChange()
     }
 
     // MARK: Add / remove with undo
@@ -301,6 +375,15 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     // MARK: Keys
 
     override func keyDown(with event: NSEvent) {
+        // Arrow keys nudge the selected annotation: 1 pt, Shift = 10 pt.
+        if let ann = selectedAnnotation, [123, 124, 125, 126].contains(event.keyCode),
+           event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            let d: NSPoint = [123: NSPoint(x: -step, y: 0), 124: NSPoint(x: step, y: 0),
+                              125: NSPoint(x: 0, y: -step), 126: NSPoint(x: 0, y: step)][event.keyCode]!
+            setBounds(ann, ann.bounds.offsetBy(dx: d.x, dy: d.y), actionName: "Move Annotation")
+            return
+        }
         let mods = event.modifierFlags.intersection([.command, .control, .option])
         if mods.isEmpty, let chars = event.charactersIgnoringModifiers {
             if event.keyCode == 53 { // Esc
@@ -308,7 +391,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
                 return
             }
             if (event.keyCode == 51 || event.keyCode == 117), selectedAnnotation != nil { deleteSelectedAnnotation(); return }
-            if let t = annotationDelegate?.allTools().first(where: { $0.key == chars }) {
+            if let t = annotationDelegate?.allTools().first(where: { $0.key?.lowercased() == chars.lowercased() }) {
                 annotationDelegate?.toolShortcutPressed(t); return
             }
             if chars == "v" { annotationDelegate?.toolShortcutPressed(.pointer); return }
@@ -326,7 +409,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         selectedAnnotation = ann
         let extra = NSMenu()
         extra.addItem(withTitle: "Delete Annotation", action: #selector(delete(_:)), keyEquivalent: "").target = self
-        let kind = kindOf(ann)
+        let kind = AnnotationFactory.kind(of: ann)
         let same = (annotationDelegate?.allTools() ?? []).filter { $0.kind == kind }
         if same.count > 1 {
             extra.addItem(.separator())
@@ -341,16 +424,6 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         extra.addItem(.separator())
         for item in menu.items { menu.removeItem(item); extra.addItem(item) }
         return extra
-    }
-
-    private func kindOf(_ ann: PDFAnnotation) -> ToolKind? {
-        switch ann.type {
-        case "Highlight": return .marker
-        case "Underline": return .underline
-        case "Ink": return .squiggly
-        case "FreeText": return .text
-        default: return nil
-        }
     }
 
     @objc private func recolor(_ sender: NSMenuItem) {
@@ -376,11 +449,6 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
 }
 
 extension NSColor {
-    var hexString: String {
-        let c = usingColorSpace(.sRGB) ?? self
-        return String(format: "%02X%02X%02X%02X", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)),
-                      Int(round(c.blueComponent * 255)), Int(round(c.alphaComponent * 255)))
-    }
     func isClose(to other: NSColor) -> Bool {
         guard let a = usingColorSpace(.sRGB), let b = other.usingColorSpace(.sRGB) else { return false }
         return abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent) + abs(a.blueComponent - b.blueComponent) < 0.06
