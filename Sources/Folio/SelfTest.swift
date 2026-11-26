@@ -114,6 +114,9 @@ final class SelfTest {
                     tv.doCommand(by: #selector(NSResponder.insertNewline(_:)))
                 } else { check(false, "text editor opened") }
                 check(view.document!.page(at: 0)!.annotations.last?.type == "FreeText", "free text added")
+                if let note = view.document!.page(at: 0)!.annotations.last {
+                    check(abs(note.bounds.midY - 270) < 1, "note's line is centred on the click (midY \(note.bounds.midY))")
+                }
                 key("0"); click(page: 0, NSPoint(x: 420, y: 240))
                 if let tv = c.window?.firstResponder as? NSTextView {
                     tv.insertText("Red one", replacementRange: tv.selectedRange())

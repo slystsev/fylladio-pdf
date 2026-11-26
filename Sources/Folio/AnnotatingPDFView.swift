@@ -109,7 +109,9 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
             if let ann = editableAnnotation(on: page, at: pt), ann.type == "FreeText" {
                 beginEditing(ann, on: page)
             } else {
-                beginTextEntry(page: page, topLeft: pt, tool: tool, text: "", replacing: nil)
+                // The I-beam marks the line you type on: the click is the middle of the first line, not its top.
+                let lineHeight = AnnotationFactory.textSize("M", tool: tool).height
+                beginTextEntry(page: page, topLeft: NSPoint(x: pt.x, y: pt.y + lineHeight / 2), tool: tool, text: "", replacing: nil)
             }
         case .marker, .underline, .squiggly:
             dragPage = page

@@ -31,6 +31,14 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Log file + hang watchdog with stack samples (D16)
 - [x] Resize annotations (handles, ⇧ keeps aspect) and move across pages (D14a), tests (48 UI checks)
 
+## Milestone 2c: user feedback round 3 (done 2026-11-26)
+- [x] Pen icon: tilted nib like Preview's Draw (SF Symbol pencil.tip), distinct from the squiggle
+- [x] Text tool: click marks the middle of the first line (was the top, so text landed a row lower)
+- [x] Blue defaults are Aqua 0096FF; text defaults: blue 11 pt (key 9), red 7 pt between lines (key 0)
+- [x] Watchdog: ping/answer, only while active (App Nap false alarms), pause after sampling
+- Note: the user's round-3 test ran a Folio launched before the round-2 fixes (12:30 vs 12:43); stalls and the missing cross-page move are expected there. Re-test pending.
+- Found: 41 Preview inks in the user's file have a collapsed /Rect (-2,-2,4,4); they are invisible 1 pt dots from Aug–Sep, harmless.
+
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)

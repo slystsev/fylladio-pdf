@@ -18,7 +18,7 @@ a few pre-loaded markers and pens, each one keypress away.
 | 5–6 | Underline: red, blue |
 | 7–8 | Curly underline: red, blue |
 | Q, W, E | Pens: black, red, blue (freehand) |
-| 9, 0 | Text: black, red. Click, type, Return to finish (⌥/⇧Return for a new line) |
+| 9, 0 | Text: blue (11 pt, body size), red (7 pt, fits between lines). Click, type, Return to finish (⌥/⇧Return for a new line) |
 
 - Markers: a drag starting on text marks it line by line. A drag starting elsewhere, or with **⌥** held, marks a rectangle (scans, images).
 - Underlines: a drag starting on text underlines it line by line. Elsewhere (or with ⌥) they draw from point to point; nearly horizontal lines snap flat, and ⇧ forces flat.

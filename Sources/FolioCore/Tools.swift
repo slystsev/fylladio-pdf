@@ -55,14 +55,15 @@ public enum ToolConfig {
         ToolSpec(id: "marker-pink", kind: .marker, name: "Pink marker", color: "FF7EB966", key: "3"),
         ToolSpec(id: "marker-blue", kind: .marker, name: "Blue marker", color: "6FC3FF66", key: "4"),
         ToolSpec(id: "underline-red", kind: .underline, name: "Red underline", color: "E0262B", key: "5", width: 1.25),
-        ToolSpec(id: "underline-blue", kind: .underline, name: "Blue underline", color: "1F5FD6", key: "6", width: 1.25),
+        ToolSpec(id: "underline-blue", kind: .underline, name: "Blue underline", color: "0096FF", key: "6", width: 1.25),
         ToolSpec(id: "squiggly-red", kind: .squiggly, name: "Red squiggle", color: "E0262B", key: "7", width: 1.0),
-        ToolSpec(id: "squiggly-blue", kind: .squiggly, name: "Blue squiggle", color: "1F5FD6", key: "8", width: 1.0),
+        ToolSpec(id: "squiggly-blue", kind: .squiggly, name: "Blue squiggle", color: "0096FF", key: "8", width: 1.0),
         ToolSpec(id: "pen-black", kind: .pen, name: "Black pen", color: "111111", key: "q", width: 1.5),
         ToolSpec(id: "pen-red", kind: .pen, name: "Red pen", color: "D0201F", key: "w", width: 1.5),
-        ToolSpec(id: "pen-blue", kind: .pen, name: "Blue pen", color: "1F5FD6", key: "e", width: 1.5),
-        ToolSpec(id: "text-black", kind: .text, name: "Black text", color: "111111", key: "9", fontSize: 12, fontName: "Helvetica"),
-        ToolSpec(id: "text-red", kind: .text, name: "Red text", color: "D0201F", key: "0", fontSize: 12, fontName: "Helvetica"),
+        ToolSpec(id: "pen-blue", kind: .pen, name: "Blue pen", color: "0096FF", key: "e", width: 1.5),
+        // Sizes for an A4 study book: blue about body-text size, red small enough to fit between printed lines.
+        ToolSpec(id: "text-blue", kind: .text, name: "Blue text", color: "0096FF", key: "9", fontSize: 11, fontName: "Helvetica"),
+        ToolSpec(id: "text-red", kind: .text, name: "Red text (between lines)", color: "D0201F", key: "0", fontSize: 7, fontName: "Helvetica"),
     ]
 
     public static var supportDirectory: URL {

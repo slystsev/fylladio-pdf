@@ -79,11 +79,26 @@ final class ToolPaletteView: NSStackView {
                 while x < 18 { x += 2; p.line(to: NSPoint(x: x, y: up ? 5 : 1.5)); up.toggle() }
                 solid.setStroke(); p.stroke()
             case .pen:
-                let p = NSBezierPath(); p.lineWidth = 1.8; p.lineCapStyle = .round; p.lineJoinStyle = .round
-                p.move(to: NSPoint(x: 3, y: 5))
-                p.curve(to: NSPoint(x: 10, y: 10), controlPoint1: NSPoint(x: 5, y: 14), controlPoint2: NSPoint(x: 8, y: 2))
-                p.curve(to: NSPoint(x: 17, y: 13), controlPoint1: NSPoint(x: 12, y: 17), controlPoint2: NSPoint(x: 15, y: 6))
-                solid.setStroke(); p.stroke()
+                // A pen nib, like Preview's "Draw" tool, tinted with the pen's colour.
+                let name = NSImage(systemSymbolName: "pencil.tip", accessibilityDescription: nil) != nil ? "pencil.tip" : "pencil"
+                if let sym = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(.init(pointSize: 14, weight: .medium)) {
+                    // Tilt the nib to a writing angle (tip down-left) and draw a short ink stroke from the tip.
+                    NSGraphicsContext.saveGraphicsState()
+                    let t = NSAffineTransform()
+                    t.translateX(by: size.width / 2 + 2, yBy: size.height / 2 + 1)
+                    t.rotate(byDegrees: 135)
+                    t.concat()
+                    let r = NSRect(x: -sym.size.width / 2, y: -sym.size.height / 2, width: sym.size.width, height: sym.size.height)
+                    sym.draw(in: r)
+                    solid.set()
+                    r.fill(using: .sourceAtop)
+                    NSGraphicsContext.restoreGraphicsState()
+                    let ink = NSBezierPath(); ink.lineWidth = 1.5; ink.lineCapStyle = .round
+                    ink.move(to: NSPoint(x: 1.5, y: 2))
+                    ink.curve(to: NSPoint(x: 7, y: 2.5), controlPoint1: NSPoint(x: 3, y: 4), controlPoint2: NSPoint(x: 5, y: 0.5))
+                    solid.setStroke(); ink.stroke()
+                }
             case .text:
                 Self.drawLetter("T", in: NSRect(x: 0, y: 1, width: 20, height: 16), color: solid, bold: true)
             }

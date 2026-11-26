@@ -92,7 +92,7 @@ let movedPen = AnnotationFactory.freehand(tool: tool("pen-red"), points: loop.ma
 page.addAnnotation(movedPen)
 AnnotationFactory.move(movedPen, by: NSPoint(x: 0, y: -40))
 page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-red"), text: "Red note\nsecond line", topLeft: NSPoint(x: 420, y: 270)))
-page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-black"), text: "Black note", topLeft: NSPoint(x: 420, y: 200)))
+page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-blue"), text: "Blue note", topLeft: NSPoint(x: 420, y: 200)))
 // Resizing: a marker rectangle doubled in width, a pen loop squashed, an ink line stretched.
 let resizable = AnnotationFactory.highlight(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 560, width: 60, height: 20)])!
 page.addAnnotation(resizable)

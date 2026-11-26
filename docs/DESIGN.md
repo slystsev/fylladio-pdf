@@ -43,8 +43,9 @@ colour pickers, no per-use settings.
 | D14 | Pointer mode: click selects (dashed outline, open-hand cursor on hover), **drag moves**, arrows nudge 1 pt (⇧ 10 pt), Delete removes, double-click edits a note, right-click deletes or recolours. Full undo. Strokes are hit-tested near their path, not their bounding box. Moving works by shifting `bounds` (PDFKit stores quads and ink relative to it; verified to persist). | Basic editing without extra modes. |
 | D14a | **Resize**: the selected annotation shows handles (8, or only the 2 that make sense for a thin line). A drag scales the bounds and the inner geometry (`AnnotationGeometry`: marker quads, ink paths via affine transform, line end points), keeping stroke padding constant. A corner drag with ⇧ keeps the proportions. **Cross-page move**: while dragging, the annotation follows the pointer onto another page. Both have undo. | User asked for the remaining plan items. |
 | D14b | Preview's shapes saved as /Stamp (`/Name /Draft` plus the private `AAPL:AKExtras`, no /AP) are **not editable**. | Verified on the user's file (1,367 of them): PDFKit draws them from Apple's private data, and after any bounds change they vanish. Preview's Line, Ink, Square, Circle and FreeText resize fine. |
+| D14c | Text tool: the click marks the **middle of the first line** (the I-beam's row), not the top of the box. | User: input appeared one row below the pointer. |
 | D15 | Minimum macOS 13. | Current SDK, broad enough. |
-| D16 | Diagnostics: `~/Library/Logs/Folio/folio.log` (launch, opens, slow operations, every save with its duration), also in the unified log (subsystem `app.folio.pdf`). A watchdog thread logs any main-thread stall over 1 s with the current activity, and runs `/usr/bin/sample` to write the main thread's stack to `hang-*.txt` (at most 5 per session, 20 kept). | User saw a few-second stall early in a session that could not be reproduced. The next one will leave evidence. |
+| D16 | Diagnostics: `~/Library/Logs/Folio/folio.log` (launch, opens, slow operations, every save with its duration), also in the unified log (subsystem `app.folio.pdf`). A watchdog thread pings the main queue every 0.25 s and, only while Folio is the active app (App Nap delays a background app and caused false alarms), logs any stall over 1 s with the current activity, and runs `/usr/bin/sample` to write the main thread's stack to `hang-*.txt` (at most 5 per session, 20 kept). | User saw a few-second stall early in a session that could not be reproduced. The next one will leave evidence. |
 
 ## Default tools (`tools.json`)
 
@@ -58,8 +59,10 @@ colour pickers, no per-use settings.
 | 6 | Blue underline |
 | 7 | Red squiggle |
 | 8 | Blue squiggle |
-| 9 | Black text |
-| 0 | Red text |
+| 9 | Blue text, 11 pt (about body size in an A4 study book) |
+| 0 | Red text, 7 pt (fits between printed lines) |
+
+Blue everywhere is Apple's "Aqua" (0096FF), at the user's request.
 
 ## Verified facts (by experiment, 2026-11-25)
 

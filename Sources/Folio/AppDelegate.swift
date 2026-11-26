@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     var controllersForTest: [DocumentWindowController] { controllers }
     private var selfTest: SelfTest?
+    private var selfTestActivity: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
@@ -22,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         HangWatchdog.shared.start()
         let env = ProcessInfo.processInfo.environment
         if let out = env["FOLIO_SELFTEST"], let file = env["FOLIO_SELFTEST_FILE"] {
+            // Runs in the background: keep App Nap from slowing it down, and watch for hangs anyway.
+            selfTestActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Folio self-test")
+            HangWatchdog.shared.forceActive()
             open(URL(fileURLWithPath: file))
             selfTest = SelfTest(out: URL(fileURLWithPath: out), app: self)
             selfTest?.run()
