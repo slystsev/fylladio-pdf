@@ -504,11 +504,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     }
 
 
-    /// Scrolling / reading: the active bookmark follows (debounced).
+    /// Scrolling / reading: the active bookmark follows at once, so its page number is live. (A debounce here
+    /// restarted on every scroll event and only fired once scrolling stopped: the number lagged.)
     private func scheduleFollow() {
         guard positionRestored, bookmarks.activeID != nil else { return }
-        followTimer?.cancel()
-        followTimer = Debounce.after(0.3) { [weak self] in self?.followNow() }
+        followNow()
     }
 
     private func followNow() {
@@ -542,12 +542,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     @objc func goToBookmark(_ sender: NSMenuItem) {
         guard sender.tag >= 1, sender.tag <= bookmarks.bookmarks.count else { NSSound.beep(); return }
-        goToBookmark(id: bookmarks.bookmarks[sender.tag - 1].id)
+        goToBookmark(id: bookmarks.inPageOrder[sender.tag - 1].id)
     }
 
     @objc func pinBookmark(_ sender: NSMenuItem) {
         guard sender.tag >= 1, sender.tag <= bookmarks.bookmarks.count else { NSSound.beep(); return }
-        pinBookmark(id: bookmarks.bookmarks[sender.tag - 1].id)
+        pinBookmark(id: bookmarks.inPageOrder[sender.tag - 1].id)
     }
 
     /// Toggles between the spot before the last jump and here.
@@ -859,12 +859,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         case #selector(goBack(_:)): return bookmarks.back != nil
         case #selector(goToBookmark(_:)):
             guard item.tag <= bookmarks.bookmarks.count else { item.title = "Bookmark \(item.tag)"; return false }
-            let b = bookmarks.bookmarks[item.tag - 1]
+            let b = bookmarks.inPageOrder[item.tag - 1]
             item.title = "Go to “\(b.name)”"
             item.state = b.id == bookmarks.activeID ? .on : .off
         case #selector(pinBookmark(_:)):
             guard item.tag <= bookmarks.bookmarks.count else { item.title = "Move Bookmark \(item.tag) Here"; return false }
-            item.title = "Move “\(bookmarks.bookmarks[item.tag - 1].name)” Here"
+            item.title = "Move “\(bookmarks.inPageOrder[item.tag - 1].name)” Here"
         case #selector(addBookmark(_:)): return bookmarks.canAdd
         default: break
         }

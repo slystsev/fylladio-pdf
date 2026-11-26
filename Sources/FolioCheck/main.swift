@@ -192,6 +192,14 @@ do {
     check(b.bookmark("current") != nil && b.bookmark(ans!) == nil && b.canAdd, "Current can't be removed, others can")
     b.clamp(pageCount: 100)
     check(b.bookmarks.allSatisfy { ($0.spot?.page ?? 0) <= 99 }, "spots clamped to the page count")
+    var order = BookmarkState(bookmarks: [Bookmark(id: "current", name: "Current", spot: Spot(page: 50)),
+                                          Bookmark(id: "x", name: "Unplaced", spot: nil),
+                                          Bookmark(id: "a", name: "Answers", spot: Spot(page: 300)),
+                                          Bookmark(id: "r", name: "Review", spot: Spot(page: 9))], activeID: "current")
+    check(order.inPageOrder.map(\.id) == ["r", "current", "a", "x"], "sidebar order: by page, unplaced last")
+    order.follow(Spot(page: 400))
+    check(order.inPageOrder.map(\.id) == ["r", "a", "current", "x"] && order.colorIndex(of: "current") == 0,
+          "carrying Current past Answers reorders, colour stays")
     // Store: survives reload, follows a renamed file.
     let storeURL = outDir.appendingPathComponent("bookmarks.json")
     try? FileManager.default.removeItem(at: storeURL)

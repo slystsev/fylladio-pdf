@@ -52,6 +52,21 @@ public struct BookmarkState: Codable, Equatable {
     }
 
     public var active: Bookmark? { bookmarks.first { $0.id == activeID } }
+
+    /// Bookmarks in book order: by page, then top to bottom on the page; unplaced ones last (in creation order).
+    public var inPageOrder: [Bookmark] {
+        bookmarks.enumerated().sorted { l, r in
+            switch (l.element.spot, r.element.spot) {
+            case let (a?, b?): return a.page != b.page ? a.page < b.page : (a.y != b.y ? a.y > b.y : l.offset < r.offset)
+            case (.some, .none): return true
+            case (.none, .some): return false
+            case (.none, .none): return l.offset < r.offset
+            }
+        }.map(\.element)
+    }
+
+    /// Creation index (stable): decides a bookmark's ribbon colour.
+    public func colorIndex(of id: String) -> Int { bookmarks.firstIndex { $0.id == id } ?? 0 }
     public func bookmark(_ id: String) -> Bookmark? { bookmarks.first { $0.id == id } }
     public var canAdd: Bool { bookmarks.count < Self.maxCount }
 

@@ -35,14 +35,14 @@ See docs/DESIGN.md for decisions and docs/PLAN.md for status.
 
 ## Bookmarks
 
-The left column holds up to 4 bookmarks, each with its own ribbon colour. A new file starts with one, **Current**, not yet placed: click it to put it where you are.
+The left column holds up to 4 bookmarks in page order, each with its own ribbon colour. A new file starts with one, **Current**, not yet placed: click it to put it where you are.
 
 - Click a bookmark to go there. It's then highlighted ("p. N · with you") and **moves with you as you read**. Its ribbon hangs from the top of the page view.
 - Other bookmarks show as ribbons on the edge of their pages.
 - Click the **pin** next to a bookmark to move it to this page; it then moves with you.
 - Going to a page number, a search result, a link or a thumbnail leaves every bookmark where it was, and the column reminds you that no bookmark moves with you. Pin one if you meant to bring it along.
 - **Back** (⌘[) toggles between where you were before the last jump and where you are, e.g. Current ⇄ Answers.
-- **+** adds a bookmark on this page (⌘D). Keys: ⌃1–⌃4 go to a bookmark, ⌃⌥1–⌃⌥4 pin it here. Right-click to rename or remove.
+- **+** adds a bookmark on this page (⌘D). Keys: ⌃1–⌃4 go to a bookmark (top to bottom), ⌃⌥1–⌃⌥4 pin it here. Right-click to rename or remove.
 - Thumbnails (⌥⌘S) appear below the bookmarks. Drag the column edge to resize it.
 
 ## Saving and recovery

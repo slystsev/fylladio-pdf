@@ -331,8 +331,9 @@ final class SelfTest {
                 check(c.ribbonsForTest.count == 1 && c.ribbonsForTest[0].active, "active ribbon shown")
                 c.nextPage(nil)   // reading on (Page Down)
             }),
-            (0.6, { [self] in
+            (0.15, { [self] in
                 check(c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot?.page == 30, "Current follows reading to page 31")
+                check(c.bookmarkSidebar.rows["current"]!.detailText.hasPrefix("p. 31"), "sidebar shows p. 31 right away (\(c.bookmarkSidebar.rows["current"]!.detailText))")
                 c.pageField.stringValue = "45"; c.pageFieldEntered()
             }),
             (0.6, { [self] in
@@ -342,6 +343,7 @@ final class SelfTest {
                 c.addBookmark(named: "Answers")
                 let ans = c.bookmarks.bookmarks.last!
                 check(ans.name == "Answers" && ans.spot?.page == 44 && c.bookmarks.activeID == ans.id, "new bookmark goes on this page and moves with you")
+                check(c.bookmarkSidebar.shownOrder == ["current", ans.id], "sidebar in page order: Current (31), Answers (45)")
                 c.bookmarkSidebar.rows["current"]!.performClick()
             }),
             (0.6, { [self] in
@@ -357,6 +359,7 @@ final class SelfTest {
                 let ansID = c.bookmarks.bookmarks.last!.id
                 c.bookmarkSidebar.pinButtons[ansID]!.performClick(nil)
                 check(c.bookmarks.activeID == ansID && c.bookmarks.bookmark(ansID)?.spot?.page == 9, "one-click pin moves Answers to page 10")
+                check(c.bookmarkSidebar.shownOrder == [ansID, "current"], "re-sorted: Answers (10) now above Current (31)")
                 check(c.ribbonsForTest.count == 2 && c.ribbonsForTest.filter(\.active).count == 1, "two ribbons, one active")
                 snap("09-bookmarks")
                 let col = c.bookmarkSidebar.superview!

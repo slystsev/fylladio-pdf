@@ -93,6 +93,7 @@ final class BookmarkRow: NSView {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
     }
     func performClick() { onClick?() }
+    var detailText: String { detail.stringValue }
 }
 
 /// A small ribbon glyph (filled when placed, outlined when not).
@@ -127,6 +128,8 @@ final class BookmarkSidebarView: NSView {
     private let stack = NSStackView()
     private let rowsStack = NSStackView()
     private(set) var rows: [String: BookmarkRow] = [:]
+    /// Row ids top to bottom, as shown.
+    var shownOrder: [String] { rowsStack.arrangedSubviews.compactMap { ($0 as? BookmarkRow)?.id } }
     var pinButtons: [String: NSButton] { rows.mapValues(\.pin) }
     let backButton = NSButton()
     let addButton = NSButton()
@@ -197,9 +200,15 @@ final class BookmarkSidebarView: NSView {
             }
             addButton.isHidden = !state.canAdd
         }
-        for (i, b) in state.bookmarks.enumerated() {
-            rows[b.id]?.update(name: b.name, color: RibbonColor.at(i), active: b.id == state.activeID, placed: b.isPlaced,
-                               page: b.spot.map { pageLabel($0.page) }, shortcut: i + 1)
+        // Book order; rows are moved, not rebuilt, as a bookmark you carry passes another.
+        let ordered = state.inPageOrder
+        let wanted = ordered.compactMap { rows[$0.id] }
+        if rowsStack.arrangedSubviews.map({ ObjectIdentifier($0) }) != wanted.map({ ObjectIdentifier($0) }) {
+            for (i, row) in wanted.enumerated() { rowsStack.insertArrangedSubview(row, at: i) }
+        }
+        for (i, b) in ordered.enumerated() {
+            rows[b.id]?.update(name: b.name, color: RibbonColor.at(state.colorIndex(of: b.id)), active: b.id == state.activeID,
+                               placed: b.isPlaced, page: b.spot.map { pageLabel($0.page) }, shortcut: i + 1)
         }
         backButton.isEnabled = state.back != nil
         let anyPlaced = state.bookmarks.contains { $0.isPlaced }

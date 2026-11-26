@@ -53,6 +53,9 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Self-test isolation: invisible (accessory app, see-through windows), own settings, bookmarks, logs, recovery folder, app copy
 - [x] Tests: FolioCheck all pass; UI self-test 75 checks
 
+## Milestone 6: round 5 (done 2026-11-26)
+- [x] Bookmarks sorted by page; live page number while scrolling (D17d); 78 UI checks
+
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
