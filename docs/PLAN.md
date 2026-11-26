@@ -28,6 +28,7 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 
 ## Milestone 2b: user feedback round 2 (done 2026-11-26)
 - [x] Slowdown on big annotated file: save moved to background snapshot writes (D7)
+- [x] Log file + hang watchdog with stack samples (D16)
 
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json

@@ -220,8 +220,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         pdfView.endTextEntry(commit: true)
         guard dirty else { return }
         if saveInFlight { resaveWanted = true; return }
-        if !backedUp { backedUp = SafeSaver.backup(url) != nil }
-        guard let snapshot = pdfDocument.copy() as? PDFDocument else { return }
+        if !backedUp {
+            let copy: URL? = Log.timed("backup") { SafeSaver.backup(self.url) }
+            backedUp = copy != nil
+        }
+        let copied: Any = Log.timed("snapshot") { self.pdfDocument.copy() }
+        guard let snapshot = copied as? PDFDocument else { return }
         let generation = editGeneration
         let url = self.url
         saveInFlight = true
@@ -231,6 +235,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
             var failure: Error?
             do { try SafeSaver.save(snapshot, to: url) } catch { failure = error }
             let duration = Date().timeIntervalSince(started)
+            let outcome: String = failure.map { " FAILED: \($0)" } ?? ""
+            Log.info("saved \(url.lastPathComponent) in \(String(format: "%.2f", duration)) s (background)\(outcome)")
             DispatchQueue.main.async {
                 self.saveFinished(generation: generation, duration: duration, error: failure)
                 SaveQueue.group.leave()

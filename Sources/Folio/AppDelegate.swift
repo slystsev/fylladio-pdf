@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var selfTest: SelfTest?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        Log.info("launch Folio \(version), pid \(ProcessInfo.processInfo.processIdentifier)")
+        HangWatchdog.shared.start()
         let env = ProcessInfo.processInfo.environment
         if let out = env["FOLIO_SELFTEST"], let file = env["FOLIO_SELFTEST_FILE"] {
             open(URL(fileURLWithPath: file))
@@ -47,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controllers.forEach { $0.flush() }
-        SaveQueue.waitForAll()
+        Log.timed("quit: waiting for saves", threshold: 0) { SaveQueue.waitForAll() }
         rememberOpenFiles(controllers.map(\.url))
         terminating = true
         return .terminateNow
@@ -63,7 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let existing = controllers.first(where: { $0.url == url }) {
             existing.window?.makeKeyAndOrderFront(nil); return
         }
-        guard let c = DocumentWindowController(url: url, tools: tools) else {
+        let tools = self.tools
+        let opened: DocumentWindowController? = Log.timed("open \(url.lastPathComponent)", threshold: 0) {
+            DocumentWindowController(url: url, tools: tools)
+        }
+        guard let c = opened else {
+            Log.info("open failed: \(url.path)")
             let a = NSAlert()
             a.messageText = "Couldn't open “\(url.lastPathComponent)”"
             a.informativeText = "The file is not a readable PDF."
@@ -88,8 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let key = NSApp.keyWindow, key.tabbingMode != .disallowed, controllers.count > 1 {
             key.addTabbedWindow(c.window!, ordered: .above)
         }
-        c.showWindow(nil)
-        c.restorePosition()
+        Log.timed("show window \(url.lastPathComponent)") { c.showWindow(nil) }
+        Log.timed("restore position \(url.lastPathComponent)") { c.restorePosition() }
         c.window?.makeFirstResponder(c.pdfView)
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         rememberOpenFiles(controllers.map(\.url))

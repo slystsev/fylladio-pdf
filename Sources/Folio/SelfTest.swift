@@ -248,6 +248,16 @@ final class SelfTest {
                 check(idx == 29, "position restored on reopen (page \(idx + 1))")
                 check(annCount(0) > 5, "annotations present after reopen")
                 snap("07-reopened")
+                // Deliberate main-thread stall: the watchdog must log it and take a stack sample.
+                Thread.sleep(forTimeInterval: 1.8)
+            }),
+            (9.0, { [self] in
+                let logText = (try? String(contentsOf: Log.fileURL, encoding: .utf8)) ?? ""
+                let tail = logText.split(separator: "\n").suffix(40).joined(separator: "\n")
+                check(tail.contains("HANG main thread unresponsive"), "watchdog logged the stall")
+                check(tail.contains("HANG ended after"), "watchdog logged the stall's end")
+                let samples = (try? FileManager.default.contentsOfDirectory(atPath: Log.directory.path))?.filter { $0.hasPrefix("hang-") } ?? []
+                check(!samples.isEmpty, "stack sample written (\(samples.count))")
                 finish()
             }),
         ]

@@ -42,6 +42,7 @@ colour pickers, no per-use settings.
 | D13 | Single-key tool shortcuts are handled in the PDF view's `keyDown`, not as menu key equivalents. | Menu equivalents without modifiers would swallow typing in the search field. |
 | D14 | Pointer mode: click selects (dashed outline, open-hand cursor on hover), **drag moves**, arrows nudge 1 pt (⇧ 10 pt), Delete removes, double-click edits a note, right-click deletes or recolours. Full undo. Strokes are hit-tested near their path, not their bounding box. Moving works by shifting `bounds` (PDFKit stores quads and ink relative to it; verified to persist). | Basic editing without extra modes. |
 | D15 | Minimum macOS 13. | Current SDK, broad enough. |
+| D16 | Diagnostics: `~/Library/Logs/Folio/folio.log` (launch, opens, slow operations, every save with its duration), also in the unified log (subsystem `app.folio.pdf`). A watchdog thread logs any main-thread stall over 1 s with the current activity, and runs `/usr/bin/sample` to write the main thread's stack to `hang-*.txt` (at most 5 per session, 20 kept). | User saw a few-second stall early in a session that could not be reproduced. The next one will leave evidence. |
 
 ## Default tools (`tools.json`)
 
