@@ -7,10 +7,12 @@ import PDFKit
 /// - Underline, curly underline, pen → /Ink with dense polylines. Ink renders in every viewer and lets the
 ///   width be configured; PDFKit does not render /Squiggly at all.
 /// - Text → /FreeText.
-/// Every annotation's author (/T) is "Folio/<kind>" so the tool kind survives save/reload
+/// Every annotation's author (/T) is "Fylladio/<kind>" so the tool kind survives save/reload
 /// (verified: PDFKit drops /NM and custom keys when writing, but keeps /T).
 public enum AnnotationFactory {
-    public static let authorTag = "Folio"
+    public static let authorTag = "Fylladio"
+    /// Tags written before the app was renamed (it was called Folio until v0.1.0); still recognised.
+    public static let legacyAuthorTags = ["Folio"]
 
     // Curly underline shape: a flat sine wave.
     public static let wavePeriod: CGFloat = 8.0
@@ -179,7 +181,7 @@ public enum AnnotationFactory {
 
     // MARK: Identity, hit testing, moving
 
-    /// Tags an annotation as Folio's: author "Folio/<kind>", plus "@<opacity>" for translucent ones (markers).
+    /// Tags an annotation as Fylladio's: author "Fylladio/<kind>", plus "@<opacity>" for translucent ones (markers).
     /// PDFKit keeps a highlight's opacity only in its appearance stream: after a reload its colour reads as opaque,
     /// and any change (move, resize, recolour) redraws it opaque. The tag lets `restoreOpacity` put it back.
     static func stamp(_ ann: PDFAnnotation, kind: ToolKind) {
@@ -188,20 +190,21 @@ public enum AnnotationFactory {
         ann.modificationDate = Date()
     }
 
-    /// Default marker opacity, assumed for Folio highlights tagged before opacity was recorded.
+    /// Default marker opacity, assumed for Fylladio highlights tagged before opacity was recorded.
     public static let legacyMarkerOpacity: CGFloat = 0.4
 
-    /// "Folio/<kind>[@<opacity>]" → (kind, opacity).
+    /// "Fylladio/<kind>[@<opacity>]" → (kind, opacity).
     static func parseTag(_ ann: PDFAnnotation) -> (ToolKind, CGFloat?)? {
-        guard let t = ann.userName, t.hasPrefix(authorTag + "/") else { return nil }
-        let rest = t.dropFirst(authorTag.count + 1)
+        guard let t = ann.userName,
+              let tag = ([authorTag] + legacyAuthorTags).first(where: { t.hasPrefix($0 + "/") }) else { return nil }
+        let rest = t.dropFirst(tag.count + 1)
         let parts = rest.split(separator: "@", maxSplits: 1)
         guard let first = parts.first, let k = ToolKind(rawValue: String(first)) else { return nil }
         let opacity = parts.count > 1 ? Double(parts[1]).map { CGFloat($0) } : nil
         return (k, opacity)
     }
 
-    /// Re-applies a Folio marker's opacity after a reload (see `stamp`). Call before changing an annotation.
+    /// Re-applies a Fylladio marker's opacity after a reload (see `stamp`). Call before changing an annotation.
     /// Preview's highlights are opaque by design and are left alone.
     public static func restoreOpacity(_ ann: PDFAnnotation) {
         guard ann.type == "Highlight", let (k, opacity) = parseTag(ann), k == .marker, ann.color.alphaComponent > 0.999 else { return }
@@ -214,7 +217,7 @@ public enum AnnotationFactory {
         if let (k, _) = parseTag(ann) { stamp(ann, kind: k) }
     }
 
-    /// The tool kind an annotation belongs to (Folio's tag, else guessed from its PDF type).
+    /// The tool kind an annotation belongs to (Fylladio's tag, else guessed from its PDF type).
     public static func kind(of ann: PDFAnnotation) -> ToolKind? {
         if let (k, _) = parseTag(ann) { return k }
         switch ann.type {

@@ -1,5 +1,5 @@
 import AppKit
-import FolioCore
+import FylladioCore
 
 /// Ribbon colours, by bookmark position: Current red, then aqua, green, purple.
 enum RibbonColor {

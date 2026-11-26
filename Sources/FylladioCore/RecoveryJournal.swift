@@ -14,7 +14,7 @@ public struct FileStamp: Codable, Equatable {
 }
 
 /// Crash insurance between saves. Every edit rewrites a small sidecar PDF with one blank page per changed
-/// page, carrying copies of that page's Folio-editable annotations (`AnnotationFactory.isEditable`), plus a
+/// page, carrying copies of that page's Fylladio-editable annotations (`AnnotationFactory.isEditable`), plus a
 /// JSON file saying which pages they belong to. PDFKit's own writer is used, so fidelity equals a real save
 /// (verified pixel-identical on the user's file, incl. Preview's annotations; NSKeyedArchiver was not: it
 /// loses Line geometry). Deleted once a save has covered every journaled change.
@@ -30,7 +30,7 @@ public enum RecoveryJournal {
     }
 
     public static var directory: URL {
-        let dir = (ProcessInfo.processInfo.environment["FOLIO_SELFTEST"].map { URL(fileURLWithPath: $0) } ?? ToolConfig.supportDirectory)
+        let dir = (ProcessInfo.processInfo.environment["FYLLADIO_SELFTEST"].map { URL(fileURLWithPath: $0) } ?? ToolConfig.supportDirectory)
             .appendingPathComponent("Recovery", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -56,7 +56,7 @@ public enum RecoveryJournal {
             for a in src.annotations where AnnotationFactory.isEditable(a) {
                 AnnotationFactory.restoreOpacity(a)
                 guard let c = a.copy() as? PDFAnnotation else { continue }
-                // copy() loses the colour's colour space (Folio's sRGB aqua came back duller); set it again.
+                // copy() loses the colour's colour space (Fylladio's sRGB aqua came back duller); set it again.
                 c.color = a.color
                 if let f = a.fontColor { c.fontColor = f }
                 if let i = a.interiorColor { c.interiorColor = i }
@@ -83,7 +83,7 @@ public enum RecoveryJournal {
         try? FileManager.default.removeItem(at: pdfURL(for: file))
     }
 
-    /// A journal left behind for `file` (Folio quit without saving these edits), if any.
+    /// A journal left behind for `file` (Fylladio quit without saving these edits), if any.
     public static func pending(for file: URL) -> (Meta, PDFDocument)? {
         guard let data = try? Data(contentsOf: metaURL(for: file)),
               let meta = try? JSONDecoder().decode(Meta.self, from: data),

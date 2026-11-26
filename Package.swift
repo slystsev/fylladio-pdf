@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "Folio",
+    name: "Fylladio",
     platforms: [.macOS(.v13)],
     targets: [
-        .target(name: "FolioCore", path: "Sources/FolioCore"),
-        .executableTarget(name: "Folio", dependencies: ["FolioCore"], path: "Sources/Folio"),
-        .executableTarget(name: "FolioCheck", dependencies: ["FolioCore"], path: "Sources/FolioCheck"),
+        .target(name: "FylladioCore", path: "Sources/FylladioCore"),
+        .executableTarget(name: "Fylladio", dependencies: ["FylladioCore"], path: "Sources/Fylladio"),
+        .executableTarget(name: "FylladioCheck", dependencies: ["FylladioCore"], path: "Sources/FylladioCheck"),
     ]
 )

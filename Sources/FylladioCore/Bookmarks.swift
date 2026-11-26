@@ -144,18 +144,18 @@ public struct BookmarkState: Codable, Equatable {
     }
 }
 
-/// Bookmark states per file, in ~/Library/Application Support/Folio/bookmarks.json (keyed by path).
+/// Bookmark states per file, in ~/Library/Application Support/Fylladio/bookmarks.json (keyed by path).
 /// Kept outside the PDF: the active bookmark changes as you scroll, and writing that into the PDF would
 /// mean constant multi-second saves and iCloud uploads of big files.
 public final class BookmarkStore {
-    /// The self-test (FOLIO_SELFTEST=<dir>) keeps its bookmarks in its output folder, away from the user's.
-    public static let shared = BookmarkStore(url: ProcessInfo.processInfo.environment["FOLIO_SELFTEST"]
+    /// The self-test (FYLLADIO_SELFTEST=<dir>) keeps its bookmarks in its output folder, away from the user's.
+    public static let shared = BookmarkStore(url: ProcessInfo.processInfo.environment["FYLLADIO_SELFTEST"]
         .map { URL(fileURLWithPath: $0).appendingPathComponent("bookmarks.json") }
         ?? ToolConfig.supportDirectory.appendingPathComponent("bookmarks.json"))
 
     private let url: URL
     private var states: [String: BookmarkState]
-    private let queue = DispatchQueue(label: "folio.bookmarks")
+    private let queue = DispatchQueue(label: "fylladio.bookmarks")
     private var pendingWrite: DispatchWorkItem?
 
     public init(url: URL) {

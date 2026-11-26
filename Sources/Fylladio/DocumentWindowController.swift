@@ -1,6 +1,6 @@
 import AppKit
 import PDFKit
-import FolioCore
+import FylladioCore
 
 final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSSplitViewDelegate,
     AnnotatingPDFViewDelegate, PDFDocumentDelegate, NSSearchFieldDelegate, NSTextFieldDelegate {
@@ -46,7 +46,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     let bookmarkSidebar = BookmarkSidebarView()
     private let ribbonOverlay = RibbonOverlay()
     private let sidebarColumn = NSView()
-    private let sidebarWidthKey = "Folio.sidebarWidth"
+    private let sidebarWidthKey = "Fylladio.sidebarWidth"
     private(set) var bookmarks = BookmarkState.initial()
     private var followTimer: DispatchWorkItem?
 
@@ -65,7 +65,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         window.delegate = self
         window.representedURL = url
         window.title = url.lastPathComponent
-        window.setFrameAutosaveName("FolioDocumentWindow")
+        window.setFrameAutosaveName("FylladioDocumentWindow")
         window.tabbingMode = .preferred
         setupViews()
         setupToolbar()
@@ -119,10 +119,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         split.setHoldingPriority(.defaultLow, forSubviewAt: 1)
         window?.contentView = split
-        let w = FolioDefaults.shared.double(forKey: sidebarWidthKey)
+        let w = FylladioDefaults.shared.double(forKey: sidebarWidthKey)
         sidebarWidth = w >= Self.sidebarMin && w <= Self.sidebarMax ? CGFloat(w) : 170
         split.setPosition(sidebarWidth, ofDividerAt: 0)
-        setSidebar(visible: FolioDefaults.shared.bool(forKey: "Folio.sidebar"))
+        setSidebar(visible: FylladioDefaults.shared.bool(forKey: "Fylladio.sidebar"))
 
         NotificationCenter.default.addObserver(self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: pdfView)
         NotificationCenter.default.addObserver(self, selector: #selector(scheduleSavePosition), name: .PDFViewScaleChanged, object: pdfView)
@@ -131,7 +131,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     }
 
     private func setupToolbar() {
-        let tb = NSToolbar(identifier: "FolioToolbar")
+        let tb = NSToolbar(identifier: "FylladioToolbar")
         tb.delegate = self
         tb.displayMode = .iconOnly
         tb.allowsUserCustomization = false
@@ -276,7 +276,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     /// Page index → edit generation of its last change, for pages changed since the last save that covered them.
     private var journalPages: [Int: Int] = [:]
     private var journalTimer: DispatchWorkItem?
-    /// The file's stamp when it was opened or last saved by Folio.
+    /// The file's stamp when it was opened or last saved by Fylladio.
     private var baseStamp: FileStamp?
 
     private func scheduleJournal() {
@@ -297,15 +297,15 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         JournalQueue.queue.async { RecoveryJournal.write(data, meta: meta, for: file) }
     }
 
-    /// On open: if Folio quit before saving some edits, offer them back.
+    /// On open: if Fylladio quit before saving some edits, offer them back.
     func offerRecovery() {
         guard let (meta, journal) = RecoveryJournal.pending(for: url) else { return }
         let changedSince = meta.base != nil && meta.base != FileStamp.of(url)
         let fmt = DateFormatter(); fmt.dateStyle = .medium; fmt.timeStyle = .short
         let alert = NSAlert()
         alert.messageText = "Restore unsaved annotations?"
-        alert.informativeText = "Folio closed before saving annotations on \(meta.pages.count == 1 ? "1 page" : "\(meta.pages.count) pages") of “\(url.lastPathComponent)” (\(fmt.string(from: meta.date)))."
-            + (changedSince ? "\n\nThe file has changed since then. Restoring replaces Folio's annotations on those pages." : "")
+        alert.informativeText = "Fylladio closed before saving annotations on \(meta.pages.count == 1 ? "1 page" : "\(meta.pages.count) pages") of “\(url.lastPathComponent)” (\(fmt.string(from: meta.date)))."
+            + (changedSince ? "\n\nThe file has changed since then. Restoring replaces Fylladio's annotations on those pages." : "")
             + "\n\nIf you don't restore, they're kept in the Backups folder."
         alert.addButton(withTitle: "Restore")
         alert.addButton(withTitle: "Don't Restore")
@@ -365,7 +365,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         saveInFlight = false
         lastSaveDuration = duration
         if let error {
-            FileHandle.standardError.write("Folio: save failed for \(url.path): \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write("Fylladio: save failed for \(url.path): \(error)\n".data(using: .utf8)!)
             resaveWanted = false
             if !saveFailedShown {
                 saveFailedShown = true
@@ -433,7 +433,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         bookmarksChanged()
     }
 
-    /// Pages whose Folio markers have had their opacity restored for display (see `AnnotationFactory.stamp`):
+    /// Pages whose Fylladio markers have had their opacity restored for display (see `AnnotationFactory.stamp`):
     /// PDFKit draws reloaded markers much darker than when they were made. Done lazily as pages come into view;
     /// it changes nothing in the file and doesn't mark the document edited.
     private var normalizedPages = Set<Int>()
@@ -668,7 +668,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     @objc func toggleSidebar(_ sender: Any?) {
         setSidebar(visible: thumbnails.isHidden)
-        FolioDefaults.shared.set(!thumbnails.isHidden, forKey: "Folio.sidebar")
+        FylladioDefaults.shared.set(!thumbnails.isHidden, forKey: "Fylladio.sidebar")
     }
 
     private func setSidebar(visible: Bool) {
@@ -841,7 +841,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         let w = sidebarColumn.frame.width
         guard w >= Self.sidebarMin, w <= Self.sidebarMax, abs(w - sidebarWidth) > 0.5 else { return }
         sidebarWidth = w
-        FolioDefaults.shared.set(Double(w), forKey: sidebarWidthKey)
+        FylladioDefaults.shared.set(Double(w), forKey: sidebarWidthKey)
     }
     /// Window resizing changes the document, not the column.
     func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool { view !== sidebarColumn }
@@ -885,7 +885,7 @@ private extension PDFDocument {
 /// subject to run-loop mode or timer coalescing the way Timer is.
 /// Background saves. Serial, so writes to the same file never overlap; the group lets quit wait for them.
 enum SaveQueue {
-    static let queue = DispatchQueue(label: "folio.save", qos: .userInitiated)
+    static let queue = DispatchQueue(label: "fylladio.save", qos: .userInitiated)
     static let group = DispatchGroup()
 
     /// Blocks until every started save (including follow-ups they trigger) has finished. Used at quit.
@@ -898,7 +898,7 @@ enum SaveQueue {
 
 /// Journal writes and deletes, in order.
 enum JournalQueue {
-    static let queue = DispatchQueue(label: "folio.journal", qos: .userInitiated)
+    static let queue = DispatchQueue(label: "fylladio.journal", qos: .userInitiated)
 }
 
 enum Debounce {

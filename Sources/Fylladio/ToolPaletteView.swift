@@ -1,5 +1,5 @@
 import AppKit
-import FolioCore
+import FylladioCore
 
 /// The pencil case: one button per preconfigured tool, plus the pointer.
 final class ToolPaletteView: NSStackView {

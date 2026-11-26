@@ -1,31 +1,31 @@
 import AppKit
 import PDFKit
-import FolioCore
+import FylladioCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var controllers: [DocumentWindowController] = []
     private(set) var tools = ToolConfig.load()
     private var settings: SettingsWindowController?
     private var openedAtLaunch = false
-    private let openFilesKey = "Folio.openFiles"
+    private let openFilesKey = "Fylladio.openFiles"
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMenu()
     }
 
     var controllersForTest: [DocumentWindowController] { controllers }
-    private let isSelfTest = ProcessInfo.processInfo.environment["FOLIO_SELFTEST"] != nil
+    private let isSelfTest = ProcessInfo.processInfo.environment["FYLLADIO_SELFTEST"] != nil
     private var selfTest: SelfTest?
     private var selfTestActivity: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-        Log.info("launch Folio \(version), pid \(ProcessInfo.processInfo.processIdentifier)")
+        Log.info("launch Fylladio \(version), pid \(ProcessInfo.processInfo.processIdentifier)")
         HangWatchdog.shared.start()
         let env = ProcessInfo.processInfo.environment
-        if let out = env["FOLIO_SELFTEST"], let file = env["FOLIO_SELFTEST_FILE"] {
+        if let out = env["FYLLADIO_SELFTEST"], let file = env["FYLLADIO_SELFTEST_FILE"] {
             // Runs in the background: keep App Nap from slowing it down, and watch for hangs anyway.
-            selfTestActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Folio self-test")
+            selfTestActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Fylladio self-test")
             HangWatchdog.shared.forceActive()
             open(URL(fileURLWithPath: file))
             selfTest = SelfTest(out: URL(fileURLWithPath: out), app: self)
@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // Restore last session's windows unless the app was launched to open specific files.
         if !openedAtLaunch {
-            let paths = FolioDefaults.shared.stringArray(forKey: openFilesKey) ?? []
+            let paths = FylladioDefaults.shared.stringArray(forKey: openFilesKey) ?? []
             for p in paths where FileManager.default.fileExists(atPath: p) { open(URL(fileURLWithPath: p)) }
             if controllers.isEmpty { openDocument(nil) }
         }
@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func rememberOpenFiles(_ urls: [URL]) {
-        FolioDefaults.shared.set(urls.map(\.path), forKey: openFilesKey)
+        FylladioDefaults.shared.set(urls.map(\.path), forKey: openFilesKey)
     }
 
     @objc func openDocument(_ sender: Any?) {
@@ -175,18 +175,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             m.addItem(i)
         }
 
-        submenu("Folio") { m in
-            add(m, "About Folio", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
+        submenu("Fylladio") { m in
+            add(m, "About Fylladio", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
             m.addItem(.separator())
             add(m, "Settings…", #selector(showSettings(_:)), ",")
             add(m, "Reveal Tools File", #selector(revealToolsFile(_:)))
             add(m, "Show Backups Folder", #selector(revealBackups(_:)))
             m.addItem(.separator())
-            add(m, "Hide Folio", #selector(NSApplication.hide(_:)), "h")
+            add(m, "Hide Fylladio", #selector(NSApplication.hide(_:)), "h")
             add(m, "Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option])
             add(m, "Show All", #selector(NSApplication.unhideAllApplications(_:)))
             m.addItem(.separator())
-            add(m, "Quit Folio", #selector(NSApplication.terminate(_:)), "q")
+            add(m, "Quit Fylladio", #selector(NSApplication.terminate(_:)), "q")
         }
         submenu("File") { m in
             add(m, "Open…", #selector(openDocument(_:)), "o")

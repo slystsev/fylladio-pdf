@@ -67,8 +67,10 @@ public enum ToolConfig {
     ]
 
     public static var supportDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("Folio", isDirectory: true)
+        // Tests (FYLLADIO_SELFTEST=<dir>) get their own folder: they must never create the user's, or the
+        // one-time migration from Folio would find it and skip the user's tools.
+        let dir = ProcessInfo.processInfo.environment["FYLLADIO_SELFTEST"].map { URL(fileURLWithPath: $0).appendingPathComponent("Support", isDirectory: true) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Fylladio", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -83,7 +85,7 @@ public enum ToolConfig {
             return defaults
         }
         guard var tools = try? JSONDecoder().decode([ToolSpec].self, from: data), !tools.isEmpty else {
-            NSLog("Folio: tools.json unreadable, using defaults")
+            NSLog("Fylladio: tools.json unreadable, using defaults")
             return defaults
         }
         let usedKeys = Set(tools.compactMap(\.key))

@@ -1,5 +1,5 @@
 import AppKit
-import FolioCore
+import FylladioCore
 
 /// Settings ▸ Tools: configure the pencil case. 1–5 tools per kind; colour, opacity (markers),
 /// line width (underline / curly / pen), font and size (text), name and shortcut key.

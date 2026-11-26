@@ -1,10 +1,12 @@
 import AppKit
 import PDFKit
-import FolioCore
+import FylladioCore
 
-// Headless self-check. Usage: FolioCheck [outDir] [largePages]
+// Headless self-check. Usage: FylladioCheck [outDir] [largePages]
 let args = CommandLine.arguments
-let outDir = URL(fileURLWithPath: args.count > 1 ? args[1] : NSTemporaryDirectory() + "folio-check")
+let outDir = URL(fileURLWithPath: args.count > 1 ? args[1] : NSTemporaryDirectory() + "fylladio-check")
+// Keep everything this check writes (recovery journals, logs, settings, bookmarks) inside outDir, away from the user's data.
+setenv("FYLLADIO_SELFTEST", outDir.path, 1)
 let largePages = args.count > 2 ? Int(args[2]) ?? 2000 : 2000
 try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 var failures = 0
@@ -213,7 +215,7 @@ do {
     FileManager.default.createFile(atPath: moved.path, contents: Data())
     check(s2.state(for: moved) == b && s2.state(for: oldPath) == nil, "bookmarks follow a moved file (same name, old path gone)")
 }
-// Marker opacity survives reload + move (PDFKit forgets it; Folio's tag keeps it).
+// Marker opacity survives reload + move (PDFKit forgets it; Fylladio's tag keeps it).
 do {
     func brightest(_ page: PDFPage, in r: NSRect) -> CGFloat {
         let h = page.bounds(for: .cropBox).height
@@ -227,8 +229,8 @@ do {
     for (label, legacy) in [("tagged", false), ("legacy tag", true)] {
         let d = PDFDocument(url: small)!
         let m = AnnotationFactory.highlight(tool: tool("marker-green"), rects: [NSRect(x: 300, y: 40, width: 100, height: 14)])!
-        if legacy { m.userName = "Folio/marker" }
-        check(legacy || m.userName == "Folio/marker@0.40", "marker tag records opacity (\(m.userName ?? "nil"))")
+        if legacy { m.userName = "Fylladio/marker" }
+        check(legacy || m.userName == "Fylladio/marker@0.40", "marker tag records opacity (\(m.userName ?? "nil"))")
         d.page(at: 0)!.addAnnotation(m)
         let u1 = base.appendingPathComponent("opacity-1.pdf"); _ = d.write(to: u1)
         let d2 = PDFDocument(url: u1)!
@@ -271,7 +273,7 @@ do {
     let restoredURL = small.deletingLastPathComponent().appendingPathComponent("journal-restored.pdf")
     _ = fresh.write(to: restoredURL)
     let restored = PDFDocument(url: restoredURL)!
-    // Folio shows markers with their opacity restored (PDFKit draws reloaded ones darker), so compare that view.
+    // Fylladio shows markers with their opacity restored (PDFKit draws reloaded ones darker), so compare that view.
     for p in [reference, restored.page(at: 0)!] { for an in p.annotations { AnnotationFactory.restoreOpacity(an) } }
     let a = px(reference), b = px(restored.page(at: 0)!)
     let diff = zip(a, b).filter { abs(Int($0) - Int($1)) > 24 }.count
@@ -294,6 +296,41 @@ do {
     check(diff == 0 && fresh.page(at: 0)!.annotations.count == reference.annotations.count, "journal restores the page identically (\(diff) px differ)")
     RecoveryJournal.delete(for: target)
     check(RecoveryJournal.pending(for: target) == nil, "journal deleted")
+}
+// Rename from Folio: old tags still recognised, user data migrated once without overwriting.
+do {
+    let old = PDFAnnotation(bounds: NSRect(x: 0, y: 0, width: 10, height: 10), forType: .highlight, withProperties: nil)
+    old.color = .yellow
+    old.userName = "Folio/marker@0.40"
+    check(AnnotationFactory.kind(of: old) == .marker, "old Folio tag still recognised")
+    AnnotationFactory.restoreOpacity(old)
+    check(abs(old.color.alphaComponent - 0.4) < 0.01, "old Folio marker keeps its opacity")
+    let root = outDir.appendingPathComponent("migration")
+    try? FileManager.default.removeItem(at: root)
+    let oldDir = root.appendingPathComponent("Folio"), newDir = root.appendingPathComponent("Fylladio")
+    try? FileManager.default.createDirectory(at: oldDir.appendingPathComponent("Backups"), withIntermediateDirectories: true)
+    try? "tools".write(to: oldDir.appendingPathComponent("tools.json"), atomically: true, encoding: .utf8)
+    try? "bm".write(to: oldDir.appendingPathComponent("bookmarks.json"), atomically: true, encoding: .utf8)
+    try? FileManager.default.createDirectory(at: newDir.appendingPathComponent("Backups"), withIntermediateDirectories: true)
+    try? "mine".write(to: newDir.appendingPathComponent("bookmarks.json"), atomically: true, encoding: .utf8)
+    try? "old backup".write(to: oldDir.appendingPathComponent("Backups/book 2026.pdf"), atomically: true, encoding: .utf8)
+    let suite = "app.fylladio.check.migration"
+    let d = UserDefaults(suiteName: suite)!
+    d.removePersistentDomain(forName: suite)
+    let copied = LegacyMigration.migrate(oldSupport: oldDir, newSupport: newDir,
+                                         oldSettings: ["Folio.positions": ["a": 1], "Folio.sidebar": true, "NSWindow Frame FolioDocumentWindow": "1 2 3 4", "Other": 1],
+                                         newDefaults: d)
+    check((try? String(contentsOf: newDir.appendingPathComponent("tools.json"), encoding: .utf8)) == "tools"
+          && (try? String(contentsOf: newDir.appendingPathComponent("bookmarks.json"), encoding: .utf8)) == "mine"
+          && FileManager.default.fileExists(atPath: newDir.appendingPathComponent("Backups/book 2026.pdf").path)
+          && FileManager.default.fileExists(atPath: oldDir.appendingPathComponent("tools.json").path),
+          "migration copies data, keeps the old copy, never overwrites")
+    check(d.bool(forKey: "Fylladio.sidebar") && d.dictionary(forKey: "Fylladio.positions") != nil
+          && d.string(forKey: "NSWindow Frame FylladioDocumentWindow") == "1 2 3 4" && d.object(forKey: "Other") == nil,
+          "migration renames settings keys (\(copied.count) items)")
+    check(LegacyMigration.migrate(oldSupport: oldDir, newSupport: newDir, oldSettings: ["Folio.sidebar": false], newDefaults: d).isEmpty,
+          "migration runs only once")
+    d.removePersistentDomain(forName: suite)
 }
 check(ToolConfig.validate(ToolConfig.defaults).isEmpty, "default tools valid")
 var bad = ToolConfig.defaults; bad[1].key = "1"
@@ -330,8 +367,8 @@ bigw.page(at: 10)!.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-
 try time("save large") { try SafeSaver.save(bigw, to: work) }
 check(PDFDocument(url: work)!.page(at: 10)!.annotations.count == 1, "large save persisted")
 
-// 4. Heavy "scanned" file: pages that are big noisy JPEG images (opt-in: FOLIO_HEAVY=<pages>).
-if let hp = ProcessInfo.processInfo.environment["FOLIO_HEAVY"].flatMap(Int.init) {
+// 4. Heavy "scanned" file: pages that are big noisy JPEG images (opt-in: FYLLADIO_HEAVY=<pages>).
+if let hp = ProcessInfo.processInfo.environment["FYLLADIO_HEAVY"].flatMap(Int.init) {
     let heavy = outDir.appendingPathComponent("heavy.pdf")
     if !FileManager.default.fileExists(atPath: heavy.path) {
         time("generate heavy (\(hp) pages)") {

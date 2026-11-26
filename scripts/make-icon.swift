@@ -1,5 +1,5 @@
-// Draws Folio's app icon (a page with a marker stroke, an aqua underline and a red ribbon bookmark)
-// and writes Resources/Folio.icns. Run: swift scripts/make-icon.swift
+// Draws Fylladio's app icon (a page with a marker stroke, an aqua underline and a red ribbon bookmark)
+// and writes Resources/Fylladio.icns. Run: swift scripts/make-icon.swift
 import AppKit
 
 func draw(_ s: CGFloat) -> NSBitmapImageRep {
@@ -55,7 +55,7 @@ func draw(_ s: CGFloat) -> NSBitmapImageRep {
 }
 
 let root = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : FileManager.default.currentDirectoryPath)
-let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("Folio.iconset")
+let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("Fylladio.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try! FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 for base in [16, 32, 128, 256, 512] {
@@ -65,9 +65,9 @@ for base in [16, 32, 128, 256, 512] {
         try! draw(px).representation(using: .png, properties: [:])!.write(to: iconset.appendingPathComponent(name))
     }
 }
-try! draw(1024).representation(using: .png, properties: [:])!.write(to: root.appendingPathComponent("Resources/Folio-1024.png"))
+try! draw(1024).representation(using: .png, properties: [:])!.write(to: root.appendingPathComponent("Resources/Fylladio-1024.png"))
 let p = Process()
 p.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-p.arguments = ["-c", "icns", iconset.path, "-o", root.appendingPathComponent("Resources/Folio.icns").path]
+p.arguments = ["-c", "icns", iconset.path, "-o", root.appendingPathComponent("Resources/Fylladio.icns").path]
 try! p.run(); p.waitUntilExit()
-print(p.terminationStatus == 0 ? "wrote Resources/Folio.icns" : "iconutil failed")
+print(p.terminationStatus == 0 ? "wrote Resources/Fylladio.icns" : "iconutil failed")

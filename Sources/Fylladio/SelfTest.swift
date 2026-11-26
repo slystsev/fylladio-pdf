@@ -1,9 +1,9 @@
 import AppKit
 import PDFKit
-import FolioCore
+import FylladioCore
 
-/// Drives the real UI with synthetic events. Enabled with env FOLIO_SELFTEST=<outDir> and a PDF argument.
-/// Writes PNG snapshots of Folio's own window and report.txt, then quits.
+/// Drives the real UI with synthetic events. Enabled with env FYLLADIO_SELFTEST=<outDir> and a PDF argument.
+/// Writes PNG snapshots of Fylladio's own window and report.txt, then quits.
 final class SelfTest {
     let out: URL
     let app: AppDelegate

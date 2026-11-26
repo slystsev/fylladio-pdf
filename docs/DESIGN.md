@@ -1,4 +1,4 @@
-# Folio — design & decisions
+# Fylladio — design & decisions
 
 A fast, lightweight native macOS PDF viewer/annotator that works like a desk of
 stationery: a few pre-loaded markers and pens, always one keypress away. No
@@ -22,19 +22,19 @@ colour pickers, no per-use settings.
 | # | Decision | Why |
 |---|----------|-----|
 | D1 | Swift + AppKit + PDFKit, no SwiftUI | PDFKit is Apple's native renderer: lazy, tiled page rendering, low RAM. AppKit gives full control of mouse and keys. |
-| D2 | SwiftPM build plus `scripts/build-app.sh` to assemble `Folio.app` (ad-hoc signed) | Only Command Line Tools are installed, not Xcode. |
+| D2 | SwiftPM build plus `scripts/build-app.sh` to assemble `Fylladio.app` (ad-hoc signed) | Only Command Line Tools are installed, not Xcode. |
 | D3 | Annotations are standard PDF annotations saved **into the PDF** | Other apps (Preview, Acrobat) see them, and nothing needs syncing. |
 | D4 | Markers are /Highlight with quad points. On text, one quad per line. On non-text, one quad equal to the dragged rectangle. | One mechanism covers text and scans. |
 | D4a | **Underline, curly underline and pen are all /Ink** (dense polylines). | Verified: PDFKit does not render /Squiggly. Ink renders everywhere and makes the width configurable. Trade-off: other apps list them as "ink". (User feedback, round 2.) |
 | D4b | Underline and curly: a drag that starts on text snaps under each text line. Otherwise (or with ⌥) it is a **line from the start point to the end point**. Within 5° of horizontal it snaps flat; ⇧ forces flat. | User: "drawn at the bottom of the rectangle is counterintuitive; expect point to point." Snapping keeps hand-drawn underlines straight. |
 | D4c | Curly underline is a smooth sine: period 8 pt, amplitude 1.1 pt (was a 4.5 pt zig-zag). | User asked for flatter waves. Constants are in `AnnotationFactory`. |
 | D4d | Pen = freehand Ink: drop points under 0.8 pt apart, 1-2-1 moving average, then a Catmull-Rom curve sampled at about 1 pt. | Looks hand-drawn, not jagged, even for fast strokes. Ink stores only polylines, so curves are pre-sampled. |
-| D4e | The tool kind is stored in the author field `/T` = `Folio/<kind>`. | Verified: PDFKit drops /NM and custom keys on save but keeps /T. Needed for recolouring after reopen. |
+| D4e | The tool kind is stored in the author field `/T` = `Fylladio/<kind>`. | Verified: PDFKit drops /NM and custom keys on save but keeps /T. Needed for recolouring after reopen. |
 | D5 | Text vs rectangle is decided by **where the drag starts**: on a character → text mode, otherwise rectangle. Holding **Option** forces rectangle. | Predictable, and avoids the "highlight barely works" problem. |
-| D6 | Tools come from `~/Library/Application Support/Folio/tools.json`, edited in **Settings (⌘,)**: colour, opacity (markers), width (lines and pens), font and size (text), name, optional one-key shortcut. **1–5 tools per kind** (assumed meaning of the user's "up to 5 tools"); the defaults are the current set plus 3 pens (Q/W/E). Esc/V = pointer. A tool stays active after use; its key again puts it down. An old tools.json missing a kind gets that kind's defaults. | "All preconfigured", but adjustable once without per-use pickers. |
+| D6 | Tools come from `~/Library/Application Support/Fylladio/tools.json`, edited in **Settings (⌘,)**: colour, opacity (markers), width (lines and pens), font and size (text), name, optional one-key shortcut. **1–5 tools per kind** (assumed meaning of the user's "up to 5 tools"); the defaults are the current set plus 3 pens (Q/W/E). Esc/V = pointer. A tool stays active after use; its key again puts it down. An old tools.json missing a kind gets that kind's defaults. | "All preconfigured", but adjustable once without per-use pickers. |
 | D6a | Changing settings affects only new annotations. | Existing marks are part of the document. Right-click recolour exists for single changes. |
 | D7 | Autosave runs in the background from a `PDFDocument.copy()` snapshot (about 1 ms; temp file plus atomic replace on a serial queue). **Small files** save 1.5 s after the last edit. **Big files** (over 20 MB, or a save takes over 1 s) save at most every 30 s while you edit: a maximum wait, so further edits don't postpone it. Both save at once on close, window resign, app switch and quit; quit waits for saves. Edits during a save trigger a follow-up save. | A 92 MB file takes about 3.5 s to write and iCloud re-uploads it each time (user chose option B over an incremental writer). The recovery journal (D18) covers the gap. |
-| D8 | Before the first save of a file in each session, a backup copy goes to `~/Library/Application Support/Folio/Backups/` (APFS clone, so cheap). Keeps the last 30. | Insurance against PDFKit write bugs corrupting a file. |
+| D8 | Before the first save of a file in each session, a backup copy goes to `~/Library/Application Support/Fylladio/Backups/` (APFS clone, so cheap). Keeps the last 30. | Insurance against PDFKit write bugs corrupting a file. |
 | D9 | Position (page, point, zoom) is stored per file path in UserDefaults and restored on open. Open windows are restored on relaunch. | "Keep position." |
 | D10 | Search is async (`beginFindString`). Return/⌘G goes to the next result, ⇧Return/⇧⌘G to the previous. | Responsive on huge documents. |
 | D11 | Print uses `PDFDocument.printOperation` with the standard panel (page range, PDF menu). "Print Selected Pages…" prints the pages selected in the thumbnail sidebar. | System dialog, as requested. |
@@ -45,14 +45,15 @@ colour pickers, no per-use settings.
 | D14b | Preview's shapes saved as /Stamp (`/Name /Draft` plus the private `AAPL:AKExtras`, no /AP) are **not editable**. | Verified on the user's file (1,367 of them): PDFKit draws them from Apple's private data, and after any bounds change they vanish. Preview's Line, Ink, Square, Circle and FreeText resize fine. |
 | D14c | Text tool: the click marks the **middle of the first line** (the I-beam's row), not the top of the box. | User: input appeared one row below the pointer. |
 | D17 | **Bookmarks like ribbons in a book.** Up to 4 per file: Current (can't be removed), Review, plus 2 of your own (e.g. Answers). They sit in a bar under the toolbar, each as [name, pin]. Rules (`BookmarkState`): (1) at most one bookmark is *active*, the one you arrived through, and it follows your reading (scrolling, Page Up/Down); (2) going to a bookmark makes it active; (3) any other jump (page number, first/last page, search result, link, thumbnail) leaves none active, the bar says so, and nothing moves by accident; (4) the **pin** puts a bookmark here and makes it active (one click after "go to page N"); (5) **Back** (⌘[) toggles between the spot before the last jump and here, restoring which bookmark was active at each; (6) clicking the active bookmark does nothing. ⌃1–4 go to a bookmark, ⌃⌥1–4 pin, ⌘D adds one. A spot is measured 12 px below the visible top, so it lands on the page you see, not the gap between pages. | User: "simulation of a physical book"; one click to go, one click to move a bookmark here, always a way back to Current. |
-| D17a | Bookmarks are stored by Folio (`bookmarks.json`, keyed by path; a moved or renamed file is matched by name when its old path is gone), **not in the PDF**. | The active bookmark changes as you scroll; writing that into a 92 MB PDF would mean constant saves and iCloud uploads. Trade-off: other apps and other Macs don't see them. |
+| D17a | Bookmarks are stored by Fylladio (`bookmarks.json`, keyed by path; a moved or renamed file is matched by name when its old path is gone), **not in the PDF**. | The active bookmark changes as you scroll; writing that into a 92 MB PDF would mean constant saves and iCloud uploads. Trade-off: other apps and other Macs don't see them. |
 | D17b | The window no longer uses a full-size content view (the document doesn't run under the toolbar). | PDFKit's "current destination" is the top of the whole view; under a translucent toolbar that's hidden, which put bookmarks one page early. |
 | D17c | (Round 4) Bookmarks live in a **narrow left column** (default 170 px, 140–320, resizable with a 13 px grab area; thumbnails below them, ⌥⌘S). Each has a ribbon colour (red, aqua, green, purple). The active row is filled with its colour, shows "p. N · with you" and updates while scrolling. Each placed bookmark also hangs as a **ribbon on the page edge**; the active one hangs from the top of the view. A new file starts with **one unplaced Current**: clicking an unplaced bookmark places it here (no jump), and a hint asks you to place it. "+" adds one on the current page. The old auto-created Review at the page-1 default is migrated away. | User: the top bar looked counterintuitive and needed a vivid "current" cue; a default on page 1 plus a careless click lost the position; height is the bottleneck. |
 | D17d | (Round 5) The sidebar lists bookmarks in **page order** (top to bottom on a page; unplaced last). Rows move, not rebuild, when a carried bookmark passes another. Colour stays with the bookmark (creation order). ⌃1–⌃4 follow the on-screen order. The active bookmark follows **on every scroll event** (it was debounced 0.3 s, which restarted on each event so the page number lagged until scrolling stopped). | User request; "page number refreshes with much delay, misleading". |
-| D18 | **Recovery journal**: 0.3 s after each edit, the changed pages' Folio-editable annotations go into a sidecar PDF (blank pages + annotation copies, PDFKit's writer) plus JSON (page map, file stamp, date) in Application Support/Folio/Recovery. It is deleted once a save covers every change. On open, a leftover journal prompts Restore / Don't Restore (declined journals go to Backups). Restored annotations reference the journal's PDF data, so the controller keeps that document alive. | Verified: NSKeyedArchiver loses data (Line geometry), while the PDF journal restores pixel-identically. Releasing the journal document crashed (EXC_BAD_ACCESS drawing the appearance), hence the keep-alive. |
-| D19 | **Marker opacity**: PDFKit stores a highlight's opacity only in its appearance stream. After a reload `.color` is opaque and PDFKit draws it much darker (blue channel 0.35 instead of 0.74 for yellow), and any change redraws it opaque. Folio records the opacity in its author tag (`Folio/marker@0.40`). `restoreOpacity` re-applies it when a page comes into view (display only, not marked edited), on selection, before any change, and in the journal. Old tags without "@" use 0.40. Preview's highlights are opaque by design and untouched. | Found while verifying D18; also fixes markers turning dark when moved. |
+| D18 | **Recovery journal**: 0.3 s after each edit, the changed pages' Fylladio-editable annotations go into a sidecar PDF (blank pages + annotation copies, PDFKit's writer) plus JSON (page map, file stamp, date) in Application Support/Fylladio/Recovery. It is deleted once a save covers every change. On open, a leftover journal prompts Restore / Don't Restore (declined journals go to Backups). Restored annotations reference the journal's PDF data, so the controller keeps that document alive. | Verified: NSKeyedArchiver loses data (Line geometry), while the PDF journal restores pixel-identically. Releasing the journal document crashed (EXC_BAD_ACCESS drawing the appearance), hence the keep-alive. |
+| D19 | **Marker opacity**: PDFKit stores a highlight's opacity only in its appearance stream. After a reload `.color` is opaque and PDFKit draws it much darker (blue channel 0.35 instead of 0.74 for yellow), and any change redraws it opaque. Fylladio records the opacity in its author tag (`Fylladio/marker@0.40`). `restoreOpacity` re-applies it when a page comes into view (display only, not marked edited), on selection, before any change, and in the journal. Old tags without "@" use 0.40. Preview's highlights are opaque by design and untouched. | Found while verifying D18; also fixes markers turning dark when moved. |
+| D20 | **Name: Fylladio** (φυλλάδιο, booklet/worksheet; ELOT romanisation), repo `fylladio-pdf`. It was "Folio" until v0.1.0. Old author tags "Folio/<kind>" are still parsed (`legacyAuthorTags`). On first launch `LegacyMigration` copies the old support folder (merged item by item, never overwriting) and renames the `Folio.*` settings keys. Tests set FYLLADIO_SELFTEST, so they never create the user's folders (which would make the migration skip them). | Name clash with another macOS PDF viewer (Forward-Future/folio). A short app name, plus "PDF" in the repo name for search. |
 | D15 | Minimum macOS 13. | Current SDK, broad enough. |
-| D16 | Diagnostics: `~/Library/Logs/Folio/folio.log` (launch, opens, slow operations, every save with its duration), also in the unified log (subsystem `app.folio.pdf`). A watchdog thread pings the main queue every 0.25 s and, only while Folio is the active app (App Nap delays a background app and caused false alarms), logs any stall over 1 s with the current activity, and runs `/usr/bin/sample` to write the main thread's stack to `hang-*.txt` (at most 5 per session, 20 kept). | User saw a few-second stall early in a session that could not be reproduced. The next one will leave evidence. |
+| D16 | Diagnostics: `~/Library/Logs/Fylladio/fylladio.log` (launch, opens, slow operations, every save with its duration), also in the unified log (subsystem `app.fylladio.pdf`). A watchdog thread pings the main queue every 0.25 s and, only while Fylladio is the active app (App Nap delays a background app and caused false alarms), logs any stall over 1 s with the current activity, and runs `/usr/bin/sample` to write the main thread's stack to `hang-*.txt` (at most 5 per session, 20 kept). | User saw a few-second stall early in a session that could not be reproduced. The next one will leave evidence. |
 
 ## Default tools (`tools.json`)
 
@@ -81,11 +82,11 @@ Blue everywhere is Apple's "Aqua" (0096FF), at the user's request.
 
 ## Testing
 
-- `scripts/test-ui.sh <outDir>`: builds a separate app copy (.build/test/Folio.app) and runs the UI self-test with its own settings suite (`app.folio.pdf.selftest`), bookmark store and log folder, so it never touches the user's state or a running Folio.
-- `swift run -c release FolioCheck [outDir] [pages]`: headless core checks plus timings. `FOLIO_HEAVY=300` adds the 240 MB test.
+- `scripts/test-ui.sh <outDir>`: builds a separate app copy (.build/test/Fylladio.app) and runs the UI self-test with its own settings suite (`app.fylladio.pdf.selftest`), bookmark store and log folder, so it never touches the user's state or a running Fylladio.
+- `swift run -c release FylladioCheck [outDir] [pages]`: headless core checks plus timings. `FYLLADIO_HEAVY=300` adds the 240 MB test.
 - UI self-test drives the real window with synthetic events and writes PNGs and `report.txt`:
-  `FOLIO_SELFTEST=<outDir> FOLIO_SELFTEST_FILE=<copy-of-a-50-page-FolioCheck-large.pdf> dist/Folio.app/Contents/MacOS/Folio`
-  (it uses page coordinates from FolioCheck's generated PDF). Note: synthetic clicks in pointer mode on empty space
+  `FYLLADIO_SELFTEST=<outDir> FYLLADIO_SELFTEST_FILE=<copy-of-a-50-page-FylladioCheck-large.pdf> dist/Fylladio.app/Contents/MacOS/Fylladio`
+  (it uses page coordinates from FylladioCheck's generated PDF). Note: synthetic clicks in pointer mode on empty space
   would enter PDFKit's mouse-tracking loop and hang, so the test avoids them.
 
 ## Known risks / limits
@@ -95,15 +96,15 @@ Blue everywhere is Apple's "Aqua" (0096FF), at the user's request.
   incremental-update writer that appends only changed objects.
 - PDFKit can lose some exotic PDF features when rewriting (rare). D8 backups mitigate this.
 - Locked or encrypted PDFs, and read-only locations: the save fails, an alert offers "Save a Copy…", and the edits stay in memory.
-- Preview "shape" stamps can't be moved or resized in Folio (see D14b).
+- Preview "shape" stamps can't be moved or resized in Fylladio (see D14b).
 - Toolbar palette grows with tool count (up to 25 + pointer); on narrow windows NSToolbar puts overflow in a » menu.
 
 ## Layout
 
 ```
 Package.swift
-Sources/FolioCore/   tools, annotation factory, persistence (testable, no UI)
-Sources/Folio/       AppKit app
-Sources/FolioCheck/  headless self-check: builds PDFs, annotates, saves, reloads, renders PNGs, times large files
-scripts/build-app.sh builds release + assembles dist/Folio.app
+Sources/FylladioCore/   tools, annotation factory, persistence (testable, no UI)
+Sources/Fylladio/       AppKit app
+Sources/FylladioCheck/  headless self-check: builds PDFs, annotates, saves, reloads, renders PNGs, times large files
+scripts/build-app.sh builds release + assembles dist/Fylladio.app
 ```

@@ -1,14 +1,18 @@
-# Folio: plan & status
+# Fylladio: plan & status
+
+Renamed from "Folio" on 2026-11-26 (another PDF viewer, Forward-Future/folio, uses that name). App name Fylladio
+(φυλλάδιο), repo fylladio-pdf, bundle id app.fylladio.pdf. Legacy: "Folio/<kind>" annotation tags still parsed;
+`LegacyMigration` copies ~/Library/Application Support/Folio and app.folio.pdf settings once.
 
 Restart guide: read docs/DESIGN.md (decisions, verified facts, testing), then continue at the first unchecked item.
-Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DESIGN.md.
+Build: `scripts/build-app.sh` → `dist/Fylladio.app`. Checks: see "Testing" in DESIGN.md.
 
 ## Milestone 1: core app (done 2026-11-25)
 - [x] Package skeleton, app bundle script, Info.plist (PDF document type, "Open With")
-- [x] FolioCore: ToolSpec + tools.json defaults/loading
-- [x] FolioCore: AnnotationFactory (markup from text lines / rect, squiggle-as-ink, free text, char hit test)
-- [x] FolioCore: SafeSaver (temp + atomic replace, backups, keeps last 30)
-- [x] FolioCore: PositionStore
+- [x] FylladioCore: ToolSpec + tools.json defaults/loading
+- [x] FylladioCore: AnnotationFactory (markup from text lines / rect, squiggle-as-ink, free text, char hit test)
+- [x] FylladioCore: SafeSaver (temp + atomic replace, backups, keeps last 30)
+- [x] FylladioCore: PositionStore
 - [x] App: open, recent, restore last session's windows, tabs, password unlock
 - [x] Window: PDFView, thumbnail sidebar, toolbar (page field, zoom, tool palette, search)
 - [x] Annotating view: tool modes, live drag preview, Option = rectangle, text entry/edit, select/delete, recolour menu, undo/redo
@@ -16,7 +20,7 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Go to page (number or page label), menus and shortcuts
 - [x] Print (system panel) + print pages selected in thumbnails
 - [x] Autosave (adaptive debounce) + position restore
-- [x] FolioCheck + UI self-test: all passing
+- [x] FylladioCheck + UI self-test: all passing
 
 ## Milestone 2: user feedback round 1 (done 2026-11-25)
 - [x] Underline/curly on non-text: point-to-point line (snap ≤5°, ⇧ flat)
@@ -24,7 +28,7 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Flatter curly underline (smooth sine, period 8)
 - [x] Settings window: per-tool colour/opacity/width/font/size/name/key, 1–5 per kind
 - [x] Move selected annotation (drag, arrow nudge), undo
-- [x] Tests extended (FolioCheck + UI self-test, 37 checks)
+- [x] Tests extended (FylladioCheck + UI self-test, 37 checks)
 
 ## Milestone 2b: user feedback round 2 (done 2026-11-26)
 - [x] Slowdown on big annotated file: save moved to background snapshot writes (D7)
@@ -36,11 +40,11 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Text tool: click marks the middle of the first line (was the top, so text landed a row lower)
 - [x] Blue defaults are Aqua 0096FF; text defaults: blue 11 pt (key 9), red 7 pt between lines (key 0)
 - [x] Watchdog: ping/answer, only while active (App Nap false alarms), pause after sampling
-- Note: the user's round-3 test ran a Folio launched before the round-2 fixes (12:30 vs 12:43); stalls and the missing cross-page move are expected there. Re-test pending.
+- Note: the user's round-3 test ran a Fylladio launched before the round-2 fixes (12:30 vs 12:43); stalls and the missing cross-page move are expected there. Re-test pending.
 - Found: 41 Preview inks in the user's file have a collapsed /Rect (-2,-2,4,4); they are invisible 1 pt dots from Aug–Sep, harmless.
 
 ## Milestone 4: bookmarks (done 2026-11-26)
-- [x] BookmarkState rules + store (FolioCore), unit-tested in FolioCheck
+- [x] BookmarkState rules + store (FylladioCore), unit-tested in FylladioCheck
 - [x] Bookmark bar (Back, [name|pin] ×4, +), Go menu items ⌃1–4 / ⌃⌥1–4 / ⌘D, rename/remove via right-click
 - [x] Jump detection: page field, first/last, search, links, thumbnails; reading (scroll, Page Up/Down) follows
 - [x] UI self-test (61 checks)
@@ -51,7 +55,7 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Recovery journal + 30 s cadence for big files (D7, D18); crash found and fixed (journal keep-alive)
 - [x] Marker opacity kept across reloads and moves (D19)
 - [x] Self-test isolation: invisible (accessory app, see-through windows), own settings, bookmarks, logs, recovery folder, app copy
-- [x] Tests: FolioCheck all pass; UI self-test 75 checks
+- [x] Tests: FylladioCheck all pass; UI self-test 75 checks
 
 ## Milestone 6: round 5 (done 2026-11-26)
 - [x] Bookmarks sorted by page; live page number while scrolling (D17d); 78 UI checks
@@ -60,9 +64,9 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
 - [x] Option B chosen (2026-11-26): recovery journal (D18) + big files saved at most every 30 s (D7). Option A (incremental writer) ruled out by the user: too much custom PDF-writer code for the gain.
-- [x] App icon (scripts/make-icon.swift → Resources/Folio.icns)
+- [x] App icon (scripts/make-icon.swift → Resources/Fylladio.icns)
 - [ ] Developer ID signing + notarization (needs the user's Apple Developer account). Until then releases are
       ad-hoc signed and show a Gatekeeper warning on first open; README documents the workaround.
-- [x] Published: github.com/slystsev/folio (public, MIT), release v0.1.0 with Folio-0.1.0.zip (arm64)
+- [x] Published: github.com/slystsev/fylladio-pdf (public, MIT). v0.1.0 was released as "Folio" (Folio-0.1.0.zip); v0.2.0 is the first as Fylladio.
 - Dropped: TOC sidebar (the user's book has a 1-entry outline; bookmarks cover it); typing digits to jump (digits are tool keys; ⌥⌘G exists)
 - [ ] Optional: eraser tool

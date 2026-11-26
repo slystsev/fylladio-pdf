@@ -1,6 +1,6 @@
 import AppKit
 import PDFKit
-import FolioCore
+import FylladioCore
 
 protocol AnnotatingPDFViewDelegate: AnyObject {
     /// `pages`: the pages whose annotations changed (for the recovery file).
@@ -45,7 +45,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     private let outline = OutlineOverlay()
     var selectedAnnotation: PDFAnnotation? {
         didSet {
-            // Before it can be moved/resized/recoloured: give a reloaded Folio marker its opacity back.
+            // Before it can be moved/resized/recoloured: give a reloaded Fylladio marker its opacity back.
             if let a = selectedAnnotation { AnnotationFactory.restoreOpacity(a) }
             updateSelectionOutline()
         }
@@ -95,7 +95,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         jumpDepth -= 1
     }
 
-    /// Wraps a jump made by Folio itself (e.g. showing a search result) so it is reported like other jumps.
+    /// Wraps a jump made by Fylladio itself (e.g. showing a search result) so it is reported like other jumps.
     func jumping(_ body: () -> Void) {
         if jumpDepth == 0 { onJump?() }
         jumpDepth += 1   // PDFKit's go(to:) variants call each other; report once

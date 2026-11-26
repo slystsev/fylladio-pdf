@@ -1,12 +1,12 @@
 import AppKit
-import FolioCore
+import FylladioCore
 
 /// Detects main-thread stalls. Every 0.25 s a background thread posts a ping to the main queue and measures how
 /// long the main thread takes to answer. If it doesn't answer within `threshold`, the watchdog logs the current
 /// `Log.activity` and runs /usr/bin/sample on this process (2 s), writing the main thread's stack to
-/// ~/Library/Logs/Folio/hang-*.txt. When the main thread answers, it logs how long the stall lasted.
+/// ~/Library/Logs/Fylladio/hang-*.txt. When the main thread answers, it logs how long the stall lasted.
 ///
-/// Only checked while Folio is the active app: in the background, App Nap legitimately delays the main queue,
+/// Only checked while Fylladio is the active app: in the background, App Nap legitimately delays the main queue,
 /// which earlier produced false "hangs" with an idle main thread.
 final class HangWatchdog {
     static let shared = HangWatchdog()
@@ -22,7 +22,7 @@ final class HangWatchdog {
         nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.setActive(true) }
         nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.setActive(false) }
         let t = Thread { [weak self] in self?.watch() }
-        t.name = "Folio hang watchdog"
+        t.name = "Fylladio hang watchdog"
         t.qualityOfService = .utility
         t.start()
     }

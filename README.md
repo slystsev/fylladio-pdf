@@ -1,7 +1,10 @@
-# Folio
+# Fylladio
 
-A fast, lightweight native macOS PDF reader and annotator built like a pencil case:
-a few pre-loaded markers and pens, each one keypress away.
+**Fylladio** (φυλλάδιο, Greek for "booklet, worksheet"): a fast, lightweight native macOS PDF reader and
+annotator for study books, built like a pencil case: a few pre-loaded markers and pens, each one keypress away.
+
+*Formerly "Folio" (v0.1.0). On first launch Fylladio copies over Folio's settings, tools, bookmarks and backups,
+and recognises annotations Folio made.*
 
 Features: markers that work on scans too, straight and curly underlines, a smoothed pen, text notes,
 move/resize/recolour, bookmarks that move with your reading, search, go to page, print, background
@@ -9,23 +12,23 @@ autosave with crash recovery. Requires macOS 13 or later.
 
 ## Install (download)
 
-1. Download `Folio-<version>.zip` from [Releases](../../releases) and unzip it.
-2. Move `Folio.app` to Applications.
+1. Download `Fylladio-<version>.zip` from [Releases](https://github.com/slystsev/fylladio-pdf/releases) and unzip it.
+2. Move `Fylladio.app` to Applications.
 3. **First open shows a warning.** The build is not notarized by Apple (no paid developer signature yet),
    so macOS says it "cannot verify" the app or that it's "damaged". Open it anyway, once:
-   - **Finder:** right-click (or Control-click) `Folio.app` ▸ **Open** ▸ **Open**; or, on recent macOS,
-     **System Settings ▸ Privacy & Security**, scroll down, **Open Anyway** next to Folio.
-   - **Terminal (if macOS calls it damaged):** `xattr -dr com.apple.quarantine /Applications/Folio.app`
+   - **Finder:** right-click (or Control-click) `Fylladio.app` ▸ **Open** ▸ **Open**; or, on recent macOS,
+     **System Settings ▸ Privacy & Security**, scroll down, **Open Anyway** next to Fylladio.
+   - **Terminal (if macOS calls it damaged):** `xattr -dr com.apple.quarantine /Applications/Fylladio.app`
 
    After that it opens normally. The release build is for Apple Silicon Macs; on Intel, build from source.
 
 ## Build from source
 
-    scripts/build-app.sh          # → dist/Folio.app (needs only Xcode Command Line Tools)
-    open dist/Folio.app
-    cp -R dist/Folio.app /Applications/   # optional; then "Open With → Folio" in Finder
+    scripts/build-app.sh          # → dist/Fylladio.app (needs only Xcode Command Line Tools)
+    open dist/Fylladio.app
+    cp -R dist/Fylladio.app /Applications/   # optional; then "Open With → Fylladio" in Finder
 
-Tests: `swift run -c release FolioCheck <outDir>` (headless) and `scripts/test-ui.sh <outDir>`
+Tests: `swift run -c release FylladioCheck <outDir>` (headless) and `scripts/test-ui.sh <outDir>`
 (drives the real window invisibly). Design decisions and plan: [docs/DESIGN.md](docs/DESIGN.md),
 [docs/PLAN.md](docs/PLAN.md).
 
@@ -42,14 +45,14 @@ Tests: `swift run -c release FolioCheck <outDir>` (headless) and `scripts/test-u
 
 - Markers: a drag starting on text marks it line by line. A drag starting elsewhere, or with **⌥** held, marks a rectangle (scans, images).
 - Underlines: a drag starting on text underlines it line by line. Elsewhere (or with ⌥) they draw from point to point; nearly horizontal lines snap flat, and ⇧ forces flat.
-- Pointer: drag an annotation to move it, including onto another page; arrow keys nudge (⇧ ×10). Drag the square handles of a selected annotation to resize it (⇧ on a corner keeps proportions). Preview's shape stamps can't be edited in Folio.
+- Pointer: drag an annotation to move it, including onto another page; arrow keys nudge (⇧ ×10). Drag the square handles of a selected annotation to resize it (⇧ on a corner keeps proportions). Preview's shape stamps can't be edited in Fylladio.
 - Pressing the active tool's key again puts the pen down (back to the pointer).
 - Right-click an annotation to delete it or switch it to another colour of the same tool.
 - ⌘F search (Return / ⌘G next, ⇧Return / ⇧⌘G previous), ⌥⌘G go to page, ⌥⌘S thumbnails,
   ⌘P print (page ranges and Save as PDF in the system dialog), ⌥⌘P print pages selected in thumbnails.
 - Saves automatically into the PDF. The first change to a file in each session makes a backup
-  (Folio ▸ Show Backups Folder). Reopens files where you left off.
-- Customise tools: Folio ▸ Settings… (⌘,). Colour, opacity, width, font and size, name and shortcut, 1–5 tools per kind.
+  (Fylladio ▸ Show Backups Folder). Reopens files where you left off.
+- Customise tools: Fylladio ▸ Settings… (⌘,). Colour, opacity, width, font and size, name and shortcut, 1–5 tools per kind.
 
 See docs/DESIGN.md for decisions and docs/PLAN.md for status.
 
@@ -68,8 +71,8 @@ The left column holds up to 4 bookmarks in page order, each with its own ribbon 
 ## Saving and recovery
 
 - Edits save automatically in the background. Big files (over 20 MB) save at most every 30 s while you edit, and always when you close the window, switch apps or quit.
-- Every edit also goes straight into a small recovery file. If Folio ever closes unexpectedly, it offers your unsaved annotations back the next time you open the file.
-- Backups of each file before Folio's first save in a session: Folio menu ▸ Show Backups Folder.
+- Every edit also goes straight into a small recovery file. If Fylladio ever closes unexpectedly, it offers your unsaved annotations back the next time you open the file.
+- Backups of each file before Fylladio's first save in a session: Fylladio menu ▸ Show Backups Folder.
 
 ## License
 

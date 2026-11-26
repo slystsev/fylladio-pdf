@@ -23,7 +23,7 @@ public enum SafeSaver {
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let dest = backupDirectory.appendingPathComponent("\(url.deletingPathExtension().lastPathComponent) \(stamp).pdf")
         do { try fm.copyItem(at: url, to: dest) } catch {
-            NSLog("Folio: backup failed: \(error)")
+            NSLog("Fylladio: backup failed: \(error)")
             return nil
         }
         prune()
