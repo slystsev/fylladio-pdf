@@ -93,6 +93,29 @@ page.addAnnotation(movedPen)
 AnnotationFactory.move(movedPen, by: NSPoint(x: 0, y: -40))
 page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-red"), text: "Red note\nsecond line", topLeft: NSPoint(x: 420, y: 270)))
 page.addAnnotation(AnnotationFactory.freeText(tool: tool("text-black"), text: "Black note", topLeft: NSPoint(x: 420, y: 200)))
+// Resizing: a marker rectangle doubled in width, a pen loop squashed, an ink line stretched.
+let resizable = AnnotationFactory.highlight(tool: tool("marker-yellow"), rects: [NSRect(x: 50, y: 560, width: 60, height: 20)])!
+page.addAnnotation(resizable)
+AnnotationGeometry.capture(resizable).resized(to: NSRect(x: 50, y: 560, width: 120, height: 20)).apply(to: resizable)
+let quadXs = resizable.quadrilateralPoints!.map { $0.pointValue.x }
+check(abs(quadXs.max()! - quadXs.min()! - 120) < 0.5, "resized marker quads span new width (\(quadXs.max()! - quadXs.min()!))")
+let squash = AnnotationFactory.freehand(tool: tool("pen-black"), points: loop.map { NSPoint(x: $0.x - 300, y: $0.y + 200) })!
+page.addAnnotation(squash)
+let sb = squash.bounds
+AnnotationGeometry.capture(squash).resized(to: NSRect(x: sb.minX, y: sb.minY, width: sb.width * 2, height: sb.height / 2)).apply(to: squash)
+let pathBox = squash.paths!.map(\.bounds).reduce(squash.paths![0].bounds) { $0.union($1) }
+check(abs(squash.bounds.width - sb.width * 2) < 0.01 && pathBox.maxX <= squash.bounds.width + 0.01 && pathBox.minY >= -0.01,
+      "resized pen path stays inside its new bounds")
+let stretchLine = AnnotationFactory.line(tool: tool("underline-blue"), segments: [(NSPoint(x: 60, y: 520), NSPoint(x: 160, y: 520))])!
+page.addAnnotation(stretchLine)
+let lb = stretchLine.bounds
+AnnotationGeometry.capture(stretchLine).resized(to: NSRect(x: lb.minX, y: lb.minY, width: lb.width + 100, height: lb.height)).apply(to: stretchLine)
+check(abs(stretchLine.paths![0].bounds.width - 200) < 0.5, "stretched underline is 200 pt long (\(stretchLine.paths![0].bounds.width))")
+// Moving to another page: same object re-parented.
+let traveller = AnnotationFactory.freehand(tool: tool("pen-blue"), points: loop.map { NSPoint(x: $0.x - 300, y: $0.y - 250) })!
+page.addAnnotation(traveller)
+page.removeAnnotation(traveller)
+doc.page(at: 1)!.addAnnotation(traveller)
 render(page, to: outDir.appendingPathComponent("annotated-memory.png"))
 
 // 2. Save while the doc stays open, reload, verify.
@@ -107,6 +130,9 @@ let mv = reloaded.page(at: 0)!.annotations.first { $0.type == "Highlight" && abs
 check(mv != nil, "moved highlight persisted at new position")
 let mp = reloaded.page(at: 0)!.annotations.first { AnnotationFactory.kind(of: $0) == .pen && $0.bounds.minY < 300 }
 check(mp != nil, "moved pen stroke persisted at new position")
+check(reloaded.page(at: 0)!.annotations.contains { $0.type == "Highlight" && abs($0.bounds.width - 120) < 0.5 }, "resized marker persisted")
+check(reloaded.page(at: 0)!.annotations.contains { $0.type == "Ink" && abs(($0.paths?.first?.bounds.width ?? 0) - 200) < 0.5 }, "stretched underline persisted")
+check(reloaded.page(at: 1)!.annotations.contains { AnnotationFactory.kind(of: $0) == .pen }, "annotation moved to page 2 persisted there")
 // Background save: a copy() snapshot written off the main thread while the original keeps changing
 // must contain exactly the state at snapshot time.
 do {

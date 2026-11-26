@@ -199,6 +199,69 @@ final class SelfTest {
                 c.window?.undoManager?.undo()
                 check(abs(pen.bounds.midX - 470) < 3, "undo move puts stroke back")
             }),
+            (0.1, { [self] in
+                // Resize: drag the right-edge handle of the selected stroke 60 view points to the right.
+                let pen = view.selectedAnnotation!
+                let before = pen.bounds
+                let r = view.convert(pen.bounds, from: pen.page!).insetBy(dx: -3, dy: -3)
+                let a = view.convert(NSPoint(x: r.maxX, y: r.midY), to: nil)
+                let b = NSPoint(x: a.x + 60, y: a.y)
+                view.mouseDown(with: mouse(.leftMouseDown, a))
+                view.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: a.x + 30, y: a.y)))
+                view.mouseDragged(with: mouse(.leftMouseDragged, b))
+                view.mouseUp(with: mouse(.leftMouseUp, b))
+                let grew = pen.bounds.width - before.width, expected = 60 / view.scaleFactor
+                let box = pen.paths!.map(\.bounds).reduce(pen.paths![0].bounds) { $0.union($1) }
+                check(abs(grew - expected) < 1 && abs(pen.bounds.minX - before.minX) < 0.01,
+                      "right handle widens stroke by \(String(format: "%.1f", expected)) pt (got \(String(format: "%.1f", grew)))")
+                check(box.maxX <= pen.bounds.width + 0.01 && box.width > before.width - 10, "stroke path scaled with its bounds")
+                snap("08b-resized")
+            }),
+            (0.1, { [self] in
+                let pen = view.selectedAnnotation!
+                c.window?.undoManager?.undo()
+                check(abs(pen.bounds.midX - 470) < 3 && pen.bounds.width < 110, "undo resize restores size (\(pen.bounds.width))")
+            }),
+            (0.1, { [self] in
+                // Cross-page move: show the bottom of page 1 and top of page 2, draw a stroke low on page 1, drag it onto page 2.
+                let p0 = view.document!.page(at: 0)!
+                view.go(to: PDFDestination(page: p0, at: NSPoint(x: 0, y: 250)))
+                key("q")
+                dragPath(page: 0, [NSPoint(x: 300, y: 120), NSPoint(x: 340, y: 130), NSPoint(x: 380, y: 120)])
+                key("\u{1b}", code: 53)
+            }),
+            (0.1, { [self] in
+                // Separate step, so drawing and moving are separate undo groups.
+                let p0 = view.document!.page(at: 0)!, p1 = view.document!.page(at: 1)!
+                let stroke = p0.annotations.last!
+                let n0 = p0.annotations.count, n1 = p1.annotations.count
+                // Grab the stroke exactly on its path (sweep down at x = 340 until the strict hit test fires).
+                let grabY = stride(from: stroke.bounds.maxY, through: stroke.bounds.minY, by: -0.25)
+                    .first { AnnotationFactory.hits(stroke, at: NSPoint(x: 340, y: $0), tolerance: 1) } ?? 0
+                let a = windowPoint(page: 0, NSPoint(x: 340, y: grabY)), b = windowPoint(page: 1, NSPoint(x: 340, y: 700))
+                let hit = grabY > 0
+                let grabOffset = grabY - stroke.bounds.minY
+                check(AnnotationFactory.kind(of: stroke) == .pen && hit && view.tool.kind == .select,
+                      "stroke for cross-page test drawn (kind \(String(describing: AnnotationFactory.kind(of: stroke))), hit \(hit), tool \(view.tool.kind), bounds \(stroke.bounds))")
+                let va = view.convert(a, from: nil)
+                let pg = view.page(for: va, nearest: true)
+                let pp = pg.map { view.convert(va, to: $0) } ?? .zero
+                guard hit, pg === p0, AnnotationFactory.hits(stroke, at: pp, tolerance: 2) else { check(false, "cross-page drag start not on stroke"); return }
+                view.mouseDown(with: mouse(.leftMouseDown, a))
+                view.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: a.x, y: (a.y + b.y) / 2)))
+                view.mouseDragged(with: mouse(.leftMouseDragged, b))
+                view.mouseUp(with: mouse(.leftMouseUp, b))
+                check(stroke.page === p1 && p0.annotations.count == n0 - 1 && p1.annotations.count == n1 + 1,
+                      "drag moves annotation from page 1 to page 2")
+                check(abs(stroke.bounds.minY + grabOffset - 700) < 1, "grabbed point lands where dropped on page 2 (\(stroke.bounds.minY + grabOffset))")
+                snap("08c-cross-page")
+            }),
+            (0.1, { [self] in
+                let p0 = view.document!.page(at: 0)!
+                let stroke = view.selectedAnnotation!
+                c.window?.undoManager?.undo()
+                check(stroke.page === p0 && abs(stroke.bounds.midY - 122.5) < 3, "undo returns it to page 1 (midY \(stroke.bounds.midY))")
+            }),
             (2.2, { [self] in
                 let disk = PDFDocument(url: c.url)!.page(at: 0)!.annotations
                 check(disk.contains { AnnotationFactory.kind(of: $0) == .pen && abs($0.bounds.midX - 470) < 3 }, "pen stroke autosaved at its position")

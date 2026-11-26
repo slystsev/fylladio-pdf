@@ -22,7 +22,7 @@ a few pre-loaded markers and pens, each one keypress away.
 
 - Markers: a drag starting on text marks it line by line. A drag starting elsewhere, or with **⌥** held, marks a rectangle (scans, images).
 - Underlines: a drag starting on text underlines it line by line. Elsewhere (or with ⌥) they draw from point to point; nearly horizontal lines snap flat, and ⇧ forces flat.
-- Pointer: drag an annotation to move it; arrow keys nudge (⇧ ×10).
+- Pointer: drag an annotation to move it, including onto another page; arrow keys nudge (⇧ ×10). Drag the square handles of a selected annotation to resize it (⇧ on a corner keeps proportions). Preview's shape stamps can't be edited in Folio.
 - Pressing the active tool's key again puts the pen down (back to the pointer).
 - Right-click an annotation to delete it or switch it to another colour of the same tool.
 - ⌘F search (Return / ⌘G next, ⇧Return / ⇧⌘G previous), ⌥⌘G go to page, ⌥⌘S thumbnails,

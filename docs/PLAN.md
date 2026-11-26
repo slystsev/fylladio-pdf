@@ -29,11 +29,11 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 ## Milestone 2b: user feedback round 2 (done 2026-11-26)
 - [x] Slowdown on big annotated file: save moved to background snapshot writes (D7)
 - [x] Log file + hang watchdog with stack samples (D16)
+- [x] Resize annotations (handles, ⇧ keeps aspect) and move across pages (D14a), tests (48 UI checks)
 
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
-- [ ] Resize annotations; move across pages
 - [ ] Incremental-save writer (append only changed objects) so huge files save instantly
 - [ ] Crash journal (sidecar) for edits made inside the debounce window
 - [ ] App icon; Developer ID signing + notarization for distribution

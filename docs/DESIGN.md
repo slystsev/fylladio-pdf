@@ -41,6 +41,8 @@ colour pickers, no per-use settings.
 | D12 | Thumbnail sidebar is hidden by default. | Saves RAM and CPU on large files. |
 | D13 | Single-key tool shortcuts are handled in the PDF view's `keyDown`, not as menu key equivalents. | Menu equivalents without modifiers would swallow typing in the search field. |
 | D14 | Pointer mode: click selects (dashed outline, open-hand cursor on hover), **drag moves**, arrows nudge 1 pt (⇧ 10 pt), Delete removes, double-click edits a note, right-click deletes or recolours. Full undo. Strokes are hit-tested near their path, not their bounding box. Moving works by shifting `bounds` (PDFKit stores quads and ink relative to it; verified to persist). | Basic editing without extra modes. |
+| D14a | **Resize**: the selected annotation shows handles (8, or only the 2 that make sense for a thin line). A drag scales the bounds and the inner geometry (`AnnotationGeometry`: marker quads, ink paths via affine transform, line end points), keeping stroke padding constant. A corner drag with ⇧ keeps the proportions. **Cross-page move**: while dragging, the annotation follows the pointer onto another page. Both have undo. | User asked for the remaining plan items. |
+| D14b | Preview's shapes saved as /Stamp (`/Name /Draft` plus the private `AAPL:AKExtras`, no /AP) are **not editable**. | Verified on the user's file (1,367 of them): PDFKit draws them from Apple's private data, and after any bounds change they vanish. Preview's Line, Ink, Square, Circle and FreeText resize fine. |
 | D15 | Minimum macOS 13. | Current SDK, broad enough. |
 | D16 | Diagnostics: `~/Library/Logs/Folio/folio.log` (launch, opens, slow operations, every save with its duration), also in the unified log (subsystem `app.folio.pdf`). A watchdog thread logs any main-thread stall over 1 s with the current activity, and runs `/usr/bin/sample` to write the main thread's stack to `hang-*.txt` (at most 5 per session, 20 kept). | User saw a few-second stall early in a session that could not be reproduced. The next one will leave evidence. |
 
@@ -82,7 +84,7 @@ colour pickers, no per-use settings.
   incremental-update writer that appends only changed objects.
 - PDFKit can lose some exotic PDF features when rewriting (rare). D8 backups mitigate this.
 - Locked or encrypted PDFs, and read-only locations: the save fails, an alert offers "Save a Copy…", and the edits stay in memory.
-- Annotations can't be resized, and can't be moved to another page.
+- Preview "shape" stamps can't be moved or resized in Folio (see D14b).
 - Toolbar palette grows with tool count (up to 25 + pointer); on narrow windows NSToolbar puts overflow in a » menu.
 
 ## Layout

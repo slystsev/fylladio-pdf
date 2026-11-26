@@ -25,8 +25,13 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     private var previews: [(PDFPage, PDFAnnotation)] = []
 
     // Drag state (moving an existing annotation)
-    private struct Move { let ann: PDFAnnotation; let page: PDFPage; let start: NSPoint; let original: NSRect; var moved: Bool }
+    /// `grab` is the pointer's offset from the bounds origin, so the annotation follows the pointer across pages.
+    private struct Move { let ann: PDFAnnotation; let startPage: PDFPage; var page: PDFPage; let grab: NSPoint; let original: NSRect; var moved: Bool }
     private var moving: Move?
+
+    // Drag state (resizing an existing annotation by a handle)
+    private struct Resize { let ann: PDFAnnotation; let page: PDFPage; let handle: OutlineOverlay.Handle; let start: NSPoint; let original: AnnotationGeometry; var resized: Bool }
+    private var resizing: Resize?
 
     // Text entry
     private var editor: NSTextView?
@@ -85,10 +90,16 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
 
         switch tool.kind {
         case .select:
+            if let ann = selectedAnnotation, let annPage = ann.page, let h = handle(at: convert(event.locationInWindow, from: nil)) {
+                let start = annPage == page ? pt : convert(convert(pt, from: page), to: annPage)
+                resizing = Resize(ann: ann, page: annPage, handle: h, start: start, original: .capture(ann), resized: false)
+                return
+            }
             if let ann = editableAnnotation(on: page, at: pt) {
                 selectedAnnotation = ann
                 if event.clickCount == 2, ann.type == "FreeText" { beginEditing(ann, on: page); return }
-                moving = Move(ann: ann, page: page, start: pt, original: ann.bounds, moved: false)
+                moving = Move(ann: ann, startPage: page, page: page, grab: NSPoint(x: pt.x - ann.bounds.minX, y: pt.y - ann.bounds.minY),
+                              original: ann.bounds, moved: false)
                 return
             }
             selectedAnnotation = nil
@@ -114,16 +125,36 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     override func mouseDragged(with event: NSEvent) {
         if var m = moving {
             guard let (p, pt) = pagePoint(event) else { return }
-            let local = p == m.page ? pt : convert(convert(pt, from: p), to: m.page)
-            var r = m.original.offsetBy(dx: local.x - m.start.x, dy: local.y - m.start.y)
+            // Follow the pointer onto another page.
+            if p != m.page {
+                m.page.removeAnnotation(m.ann)
+                annotationsChanged(on: m.page)
+                p.addAnnotation(m.ann)
+                m.page = p
+            }
+            var r = m.ann.bounds
+            r.origin = NSPoint(x: pt.x - m.grab.x, y: pt.y - m.grab.y)
             // Keep it on the page.
-            let pb = m.page.bounds(for: displayBox)
+            let pb = p.bounds(for: displayBox)
             r.origin.x = min(max(r.minX, pb.minX - r.width / 2), pb.maxX - r.width / 2)
             r.origin.y = min(max(r.minY, pb.minY - r.height / 2), pb.maxY - r.height / 2)
             m.ann.bounds = r
             m.moved = true
             moving = m
-            annotationsChanged(on: m.page)
+            annotationsChanged(on: p)
+            updateSelectionOutline()
+            autoscroll(with: event)
+            return
+        }
+        if var z = resizing {
+            guard let (p, pt) = pagePoint(event) else { return }
+            let local = p == z.page ? pt : convert(convert(pt, from: p), to: z.page)
+            let r = resizedRect(z.original.bounds, handle: z.handle, dx: local.x - z.start.x, dy: local.y - z.start.y,
+                                keepAspect: event.modifierFlags.contains(.shift))
+            z.original.resized(to: r).apply(to: z.ann)
+            z.resized = true
+            resizing = z
+            annotationsChanged(on: z.page)
             updateSelectionOutline()
             autoscroll(with: event)
             return
@@ -139,8 +170,25 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
             consumedMouse = false
             if m.moved {
                 let final = m.ann.bounds
-                m.ann.bounds = m.original
-                setBounds(m.ann, final, actionName: "Move Annotation")
+                if m.page != m.startPage {
+                    m.page.removeAnnotation(m.ann); annotationsChanged(on: m.page)
+                    m.startPage.addAnnotation(m.ann)
+                    m.ann.bounds = m.original
+                    relocate(m.ann, to: m.page, bounds: final)
+                } else {
+                    m.ann.bounds = m.original
+                    setBounds(m.ann, final, actionName: "Move Annotation")
+                }
+            }
+            return
+        }
+        if let z = resizing {
+            resizing = nil
+            consumedMouse = false
+            if z.resized {
+                let final = AnnotationGeometry.capture(z.ann)
+                z.original.apply(to: z.ann)
+                setGeometry(z.ann, final, actionName: "Resize Annotation")
             }
             return
         }
@@ -159,7 +207,9 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     override func mouseMoved(with event: NSEvent) {
         switch tool.kind {
         case .select:
-            if let (page, pt) = pagePoint(event), editableAnnotation(on: page, at: pt) != nil {
+            if selectedAnnotation != nil, let h = handle(at: convert(event.locationInWindow, from: nil)) {
+                h.cursor.set()
+            } else if let (page, pt) = pagePoint(event), editableAnnotation(on: page, at: pt) != nil {
                 NSCursor.openHand.set()
             } else {
                 super.mouseMoved(with: event)
@@ -233,6 +283,58 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         // Topmost first. Strokes are hit near their path; boxes anywhere inside.
         let tol = max(3, 5 / max(scaleFactor, 0.1))
         return page.annotations.reversed().first { AnnotationFactory.isEditable($0) && AnnotationFactory.hits($0, at: pt, tolerance: tol) }
+    }
+
+    // MARK: Resize
+
+    /// The handle of the selection outline under a point in view coordinates.
+    private func handle(at viewPoint: NSPoint) -> OutlineOverlay.Handle? {
+        outline.handle(at: outline.convert(viewPoint, from: self))
+    }
+
+    /// `r` with the edges named by `handle` moved by (dx, dy), at least 4 pt each way.
+    /// With `keepAspect`, corner drags keep the original proportions.
+    private func resizedRect(_ r: NSRect, handle h: OutlineOverlay.Handle, dx: CGFloat, dy: CGFloat, keepAspect: Bool) -> NSRect {
+        var minX = r.minX, maxX = r.maxX, minY = r.minY, maxY = r.maxY
+        let minSize: CGFloat = 4
+        if h.left { minX = min(r.minX + dx, maxX - minSize) }
+        if h.right { maxX = max(r.maxX + dx, minX + minSize) }
+        if h.bottom { minY = min(r.minY + dy, maxY - minSize) }
+        if h.top { maxY = max(r.maxY + dy, minY + minSize) }
+        if keepAspect, (h.left || h.right), (h.top || h.bottom), r.width > 0, r.height > 0 {
+            let s = max((maxX - minX) / r.width, (maxY - minY) / r.height)
+            let w = r.width * s, hgt = r.height * s
+            if h.left { minX = maxX - w } else { maxX = minX + w }
+            if h.bottom { minY = maxY - hgt } else { maxY = minY + hgt }
+        }
+        return NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Applies a geometry (bounds plus scaled inner points) with undo.
+    func setGeometry(_ ann: PDFAnnotation, _ g: AnnotationGeometry, actionName: String) {
+        let old = AnnotationGeometry.capture(ann)
+        g.apply(to: ann)
+        if let p = ann.page { annotationsChanged(on: p) }
+        undoManager?.registerUndo(withTarget: self) { $0.setGeometry(ann, old, actionName: actionName) }
+        undoManager?.setActionName(actionName)
+        updateSelectionOutline()
+        annotationDelegate?.annotationsDidChange()
+    }
+
+    /// Moves an annotation to another page (and position) with undo.
+    func relocate(_ ann: PDFAnnotation, to page: PDFPage, bounds: NSRect) {
+        guard let from = ann.page else { return }
+        let oldBounds = ann.bounds
+        from.removeAnnotation(ann)
+        annotationsChanged(on: from)
+        ann.bounds = bounds
+        ann.modificationDate = Date()
+        page.addAnnotation(ann)
+        annotationsChanged(on: page)
+        undoManager?.registerUndo(withTarget: self) { $0.relocate(ann, to: from, bounds: oldBounds) }
+        undoManager?.setActionName("Move Annotation")
+        updateSelectionOutline()
+        annotationDelegate?.annotationsDidChange()
     }
 
     /// Changes an annotation's bounds (i.e. moves it) with undo.
@@ -455,10 +557,55 @@ extension NSColor {
     }
 }
 
-/// Draws the dashed outline around the selected annotation; transparent to clicks.
+/// Draws the dashed outline around the selected annotation and its resize handles; transparent to clicks
+/// (the PDF view asks it which handle is under the pointer).
 final class OutlineOverlay: NSView {
+    struct Handle: Equatable {
+        var left = false, right = false, top = false, bottom = false
+
+        var cursor: NSCursor {
+            if (left || right) && !(top || bottom) { return .resizeLeftRight }
+            if (top || bottom) && !(left || right) { return .resizeUpDown }
+            if #available(macOS 15.0, *) {
+                let pos: NSCursor.FrameResizePosition = top ? (left ? .topLeft : .topRight) : (left ? .bottomLeft : .bottomRight)
+                return .frameResize(position: pos, directions: .all)
+            }
+            return .crosshair
+        }
+    }
+
     var rect: NSRect? { didSet { needsDisplay = true } }
+    private let handleSize: CGFloat = 7
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Handles shown for the current rect: all eight, or only the two that make sense for a thin shape.
+    private var handles: [(Handle, NSPoint)] {
+        guard let r = rect else { return [] }
+        let thinH = r.height < 18, thinW = r.width < 18
+        var out: [(Handle, NSPoint)] = []
+        if !thinH || thinW == thinH {
+            out.append((Handle(top: true), NSPoint(x: r.midX, y: r.maxY)))
+            out.append((Handle(bottom: true), NSPoint(x: r.midX, y: r.minY)))
+        }
+        if !thinW || thinW == thinH {
+            out.append((Handle(left: true), NSPoint(x: r.minX, y: r.midY)))
+            out.append((Handle(right: true), NSPoint(x: r.maxX, y: r.midY)))
+        }
+        if !thinW && !thinH {
+            out.append((Handle(left: true, top: true), NSPoint(x: r.minX, y: r.maxY)))
+            out.append((Handle(right: true, top: true), NSPoint(x: r.maxX, y: r.maxY)))
+            out.append((Handle(left: true, bottom: true), NSPoint(x: r.minX, y: r.minY)))
+            out.append((Handle(right: true, bottom: true), NSPoint(x: r.maxX, y: r.minY)))
+        }
+        return out
+    }
+
+    func handle(at p: NSPoint) -> Handle? {
+        let reach = handleSize / 2 + 3
+        return handles.first { abs($0.1.x - p.x) <= reach && abs($0.1.y - p.y) <= reach }?.0
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let r = rect else { return }
         let path = NSBezierPath(rect: r)
@@ -466,5 +613,11 @@ final class OutlineOverlay: NSView {
         path.setLineDash([4, 3], count: 2, phase: 0)
         NSColor.controlAccentColor.setStroke()
         path.stroke()
+        for (_, c) in handles {
+            let box = NSRect(x: c.x - handleSize / 2, y: c.y - handleSize / 2, width: handleSize, height: handleSize)
+            NSColor.white.setFill(); box.fill()
+            NSColor.controlAccentColor.setStroke()
+            let b = NSBezierPath(rect: box); b.lineWidth = 1; b.stroke()
+        }
     }
 }
