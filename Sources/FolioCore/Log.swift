@@ -5,8 +5,9 @@ import os
 /// mirrored to the unified log (subsystem app.folio.pdf). Thread-safe.
 public enum Log {
     public static var directory: URL {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs/Folio", isDirectory: true)
+        // The self-test logs into its own output folder, keeping the user's log clean.
+        let dir = ProcessInfo.processInfo.environment["FOLIO_SELFTEST"].map { URL(fileURLWithPath: $0).appendingPathComponent("logs", isDirectory: true) }
+            ?? FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/Folio", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

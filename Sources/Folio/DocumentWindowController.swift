@@ -88,7 +88,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         split.addArrangedSubview(pdfView)
         split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         window?.contentView = split
-        setSidebar(visible: UserDefaults.standard.bool(forKey: "Folio.sidebar"))
+        setSidebar(visible: FolioDefaults.shared.bool(forKey: "Folio.sidebar"))
 
         NotificationCenter.default.addObserver(self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: pdfView)
         NotificationCenter.default.addObserver(self, selector: #selector(scheduleSavePosition), name: .PDFViewScaleChanged, object: pdfView)
@@ -506,7 +506,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     @objc func toggleSidebar(_ sender: Any?) {
         setSidebar(visible: thumbnails.isHidden)
-        UserDefaults.standard.set(!thumbnails.isHidden, forKey: "Folio.sidebar")
+        FolioDefaults.shared.set(!thumbnails.isHidden, forKey: "Folio.sidebar")
     }
 
     private func setSidebar(visible: Bool) {

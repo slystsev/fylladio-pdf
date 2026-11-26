@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // Restore last session's windows unless the app was launched to open specific files.
         if !openedAtLaunch {
-            let paths = UserDefaults.standard.stringArray(forKey: openFilesKey) ?? []
+            let paths = FolioDefaults.shared.stringArray(forKey: openFilesKey) ?? []
             for p in paths where FileManager.default.fileExists(atPath: p) { open(URL(fileURLWithPath: p)) }
             if controllers.isEmpty { openDocument(nil) }
         }
@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func rememberOpenFiles(_ urls: [URL]) {
-        UserDefaults.standard.set(urls.map(\.path), forKey: openFilesKey)
+        FolioDefaults.shared.set(urls.map(\.path), forKey: openFilesKey)
     }
 
     @objc func openDocument(_ sender: Any?) {
