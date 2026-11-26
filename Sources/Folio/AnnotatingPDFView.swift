@@ -3,7 +3,8 @@ import PDFKit
 import FolioCore
 
 protocol AnnotatingPDFViewDelegate: AnyObject {
-    func annotationsDidChange()
+    /// `pages`: the pages whose annotations changed (for the recovery file).
+    func annotationsDidChange(pages: [PDFPage])
     func toolShortcutPressed(_ tool: ToolSpec)
     func allTools() -> [ToolSpec]
 }
@@ -42,7 +43,13 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
 
     // Selection of an existing annotation (pointer mode)
     private let outline = OutlineOverlay()
-    var selectedAnnotation: PDFAnnotation? { didSet { updateSelectionOutline() } }
+    var selectedAnnotation: PDFAnnotation? {
+        didSet {
+            // Before it can be moved/resized/recoloured: give a reloaded Folio marker its opacity back.
+            if let a = selectedAnnotation { AnnotationFactory.restoreOpacity(a) }
+            updateSelectionOutline()
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -346,17 +353,19 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
 
     /// Applies a geometry (bounds plus scaled inner points) with undo.
     func setGeometry(_ ann: PDFAnnotation, _ g: AnnotationGeometry, actionName: String) {
+        AnnotationFactory.restoreOpacity(ann)
         let old = AnnotationGeometry.capture(ann)
         g.apply(to: ann)
         if let p = ann.page { annotationsChanged(on: p) }
         undoManager?.registerUndo(withTarget: self) { $0.setGeometry(ann, old, actionName: actionName) }
         undoManager?.setActionName(actionName)
         updateSelectionOutline()
-        annotationDelegate?.annotationsDidChange()
+        annotationDelegate?.annotationsDidChange(pages: ann.page.map { [$0] } ?? [])
     }
 
     /// Moves an annotation to another page (and position) with undo.
     func relocate(_ ann: PDFAnnotation, to page: PDFPage, bounds: NSRect) {
+        AnnotationFactory.restoreOpacity(ann)
         guard let from = ann.page else { return }
         let oldBounds = ann.bounds
         from.removeAnnotation(ann)
@@ -368,11 +377,12 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         undoManager?.registerUndo(withTarget: self) { $0.relocate(ann, to: from, bounds: oldBounds) }
         undoManager?.setActionName("Move Annotation")
         updateSelectionOutline()
-        annotationDelegate?.annotationsDidChange()
+        annotationDelegate?.annotationsDidChange(pages: [from, page])
     }
 
     /// Changes an annotation's bounds (i.e. moves it) with undo.
     func setBounds(_ ann: PDFAnnotation, _ r: NSRect, actionName: String) {
+        AnnotationFactory.restoreOpacity(ann)
         let old = ann.bounds
         ann.bounds = r
         ann.modificationDate = Date()
@@ -380,7 +390,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         undoManager?.registerUndo(withTarget: self) { $0.setBounds(ann, old, actionName: actionName) }
         undoManager?.setActionName(actionName)
         updateSelectionOutline()
-        annotationDelegate?.annotationsDidChange()
+        annotationDelegate?.annotationsDidChange(pages: ann.page.map { [$0] } ?? [])
     }
 
     // MARK: Add / remove with undo
@@ -389,7 +399,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         for (p, a) in items { p.addAnnotation(a) }
         undoManager?.registerUndo(withTarget: self) { $0.remove(items) }
         undoManager?.setActionName("Annotation")
-        annotationDelegate?.annotationsDidChange()
+        annotationDelegate?.annotationsDidChange(pages: items.map(\.0))
     }
 
     func remove(_ items: [(PDFPage, PDFAnnotation)]) {
@@ -397,7 +407,7 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
         if let sel = selectedAnnotation, items.contains(where: { $0.1 === sel }) { selectedAnnotation = nil }
         undoManager?.registerUndo(withTarget: self) { $0.add(items) }
         undoManager?.setActionName("Annotation")
-        annotationDelegate?.annotationsDidChange()
+        annotationDelegate?.annotationsDidChange(pages: items.map(\.0))
     }
 
     func replace(_ old: PDFAnnotation, with new: PDFAnnotation, on page: PDFPage) {
@@ -568,13 +578,14 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     }
 
     private func setColor(_ color: NSColor, of ann: PDFAnnotation) {
+        AnnotationFactory.restoreOpacity(ann)
         let isText = ann.type == "FreeText"
         let old = isText ? (ann.fontColor ?? .black) : ann.color
-        if isText { ann.fontColor = color } else { ann.color = color }
+        AnnotationFactory.setColor(color, of: ann)
         undoManager?.registerUndo(withTarget: self) { $0.setColor(old, of: ann) }
         undoManager?.setActionName("Change Color")
         updateSelectionOutline()
-        annotationDelegate?.annotationsDidChange()
+        annotationDelegate?.annotationsDidChange(pages: ann.page.map { [$0] } ?? [])
     }
 
     private func swatch(_ c: NSColor) -> NSImage {

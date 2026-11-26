@@ -15,6 +15,7 @@ final class SelfTest {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
     }
 
+    var crashBaseline = 0
     func check(_ ok: Bool, _ msg: String) { log.append((ok ? "PASS " : "FAIL ") + msg); if !ok { failures += 1 } }
 
     var c: DocumentWindowController { app.controllersForTest.first! }
@@ -364,6 +365,70 @@ final class SelfTest {
                     try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("09-sidebar.png"))
                 }
                 check(col.frame.width >= 140 && col.frame.width <= 320, "left column is narrow (\(Int(col.frame.width)) px)")
+                c.toggleSidebar(nil)
+            }),
+            (0.5, { [self] in
+                let col = c.bookmarkSidebar.superview!
+                check(col.frame.width >= 140 && col.frame.width <= 320 && !c.thumbnails.isHidden, "thumbnails shown in the same narrow column (\(Int(col.frame.width)) px)")
+                snap("09b-thumbnails")
+                c.toggleSidebar(nil)
+            }),
+            // Big-file cadence: edits are journaled at once, saved after the interval (2 s here instead of 30).
+            (0.3, { [self] in
+                c.forceBigFileForTest = true
+                DocumentWindowController.bigFileSaveInterval = 2
+                let p0 = view.document!.page(at: 0)!
+                view.add([(p0, AnnotationFactory.highlight(tool: app.tools.first { $0.kind == .marker }!, rects: [NSRect(x: 60, y: 300, width: 80, height: 12)])!)])
+            }),
+            (0.8, { [self] in
+                check(c.isDirtyForTest && RecoveryJournal.pending(for: c.url) != nil, "big file: edit journaled, not saved yet")
+                let p0 = view.document!.page(at: 0)!
+                view.add([(p0, AnnotationFactory.highlight(tool: app.tools.first { $0.kind == .marker }!, rects: [NSRect(x: 60, y: 280, width: 80, height: 12)])!)])
+            }),
+            (2.2, { [self] in
+                check(!c.isDirtyForTest && RecoveryJournal.pending(for: c.url) == nil, "big file: saved within the interval despite more edits, journal cleared")
+                DocumentWindowController.bigFileSaveInterval = 30
+                c.forceBigFileForTest = false
+                // Crash simulation: keep the pre-edit file, edit, keep the journal, close (saves), then put both back.
+                let url = c.url
+                let pre = out.appendingPathComponent("pre-crash.pdf")
+                try? FileManager.default.removeItem(at: pre)
+                try? FileManager.default.copyItem(at: url, to: pre)
+                crashBaseline = view.document!.page(at: 0)!.annotations.count
+                let p0 = view.document!.page(at: 0)!
+                view.add([(p0, AnnotationFactory.highlight(tool: app.tools.first { $0.kind == .marker }!, rects: [NSRect(x: 60, y: 260, width: 80, height: 12)])!)])
+            }),
+            (0.6, { [self] in
+                let url = c.url
+                for (src, name) in [(RecoveryJournal.pdfURL(for: url), "j.pdf"), (RecoveryJournal.metaURL(for: url), "j.json")] {
+                    try? FileManager.default.removeItem(at: out.appendingPathComponent(name))
+                    try? FileManager.default.copyItem(at: src, to: out.appendingPathComponent(name))
+                }
+                check(FileManager.default.fileExists(atPath: out.appendingPathComponent("j.json").path), "journal present before 'crash'")
+                c.window?.performClose(nil)
+            }),
+            (1.0, { [self] in
+                let doc = app.controllersForTest.isEmpty ? out.appendingPathComponent("doc.pdf") : c.url
+                check(RecoveryJournal.pending(for: doc) == nil, "journal removed after the save on close")
+                // Simulate the crash: the file never got the edit, the journal survived.
+                try? FileManager.default.removeItem(at: doc)
+                try? FileManager.default.copyItem(at: out.appendingPathComponent("pre-crash.pdf"), to: doc)
+                try? FileManager.default.copyItem(at: out.appendingPathComponent("j.pdf"), to: RecoveryJournal.pdfURL(for: doc))
+                try? FileManager.default.copyItem(at: out.appendingPathComponent("j.json"), to: RecoveryJournal.metaURL(for: doc))
+                DocumentWindowController.recoveryAnswerForTest = true
+                app.open(doc)
+                DocumentWindowController.recoveryAnswerForTest = nil
+                check(view.document!.page(at: 0)!.annotations.count == crashBaseline + 1, "unsaved annotation restored after 'crash' (\(view.document!.page(at: 0)!.annotations.count) vs \(crashBaseline + 1))")
+            }),
+            (1.5, { [self] in
+                let disk = PDFDocument(url: c.url)!.page(at: 0)!.annotations.count
+                check(disk == crashBaseline + 1 && RecoveryJournal.pending(for: c.url) == nil, "restored annotation saved, journal cleared")
+                view.go(to: view.document!.page(at: 0)!)
+            }),
+            (0.4, { [self] in
+                let markers = view.document!.page(at: 0)!.annotations.filter { AnnotationFactory.kind(of: $0) == .marker && $0.type == "Highlight" }
+                check(!markers.isEmpty && markers.allSatisfy { $0.color.alphaComponent < 0.999 }, "reopened markers are shown translucent (\(markers.count))")
+                check(!c.isDirtyForTest, "showing them doesn't mark the file edited")
                 BookmarkStore.shared.flush()
                 check(BookmarkStore(url: out.appendingPathComponent("bookmarks.json")).state(for: c.url) == c.bookmarks, "bookmarks saved")
                 // Deliberate main-thread stall: the watchdog must log it and take a stack sample.

@@ -179,16 +179,44 @@ public enum AnnotationFactory {
 
     // MARK: Identity, hit testing, moving
 
+    /// Tags an annotation as Folio's: author "Folio/<kind>", plus "@<opacity>" for translucent ones (markers).
+    /// PDFKit keeps a highlight's opacity only in its appearance stream: after a reload its colour reads as opaque,
+    /// and any change (move, resize, recolour) redraws it opaque. The tag lets `restoreOpacity` put it back.
     static func stamp(_ ann: PDFAnnotation, kind: ToolKind) {
-        ann.userName = "\(authorTag)/\(kind.rawValue)"
+        let a = ann.color.alphaComponent
+        ann.userName = "\(authorTag)/\(kind.rawValue)" + (a < 0.999 ? String(format: "@%.2f", a) : "")
         ann.modificationDate = Date()
+    }
+
+    /// Default marker opacity, assumed for Folio highlights tagged before opacity was recorded.
+    public static let legacyMarkerOpacity: CGFloat = 0.4
+
+    /// "Folio/<kind>[@<opacity>]" → (kind, opacity).
+    static func parseTag(_ ann: PDFAnnotation) -> (ToolKind, CGFloat?)? {
+        guard let t = ann.userName, t.hasPrefix(authorTag + "/") else { return nil }
+        let rest = t.dropFirst(authorTag.count + 1)
+        let parts = rest.split(separator: "@", maxSplits: 1)
+        guard let first = parts.first, let k = ToolKind(rawValue: String(first)) else { return nil }
+        let opacity = parts.count > 1 ? Double(parts[1]).map { CGFloat($0) } : nil
+        return (k, opacity)
+    }
+
+    /// Re-applies a Folio marker's opacity after a reload (see `stamp`). Call before changing an annotation.
+    /// Preview's highlights are opaque by design and are left alone.
+    public static func restoreOpacity(_ ann: PDFAnnotation) {
+        guard ann.type == "Highlight", let (k, opacity) = parseTag(ann), k == .marker, ann.color.alphaComponent > 0.999 else { return }
+        ann.color = ann.color.withAlphaComponent(opacity ?? legacyMarkerOpacity)
+    }
+
+    /// Sets an annotation's colour, keeping the opacity tag in step.
+    public static func setColor(_ color: NSColor, of ann: PDFAnnotation) {
+        if ann.type == "FreeText" { ann.fontColor = color } else { ann.color = color }
+        if let (k, _) = parseTag(ann) { stamp(ann, kind: k) }
     }
 
     /// The tool kind an annotation belongs to (Folio's tag, else guessed from its PDF type).
     public static func kind(of ann: PDFAnnotation) -> ToolKind? {
-        if let t = ann.userName, t.hasPrefix(authorTag + "/"), let k = ToolKind(rawValue: String(t.dropFirst(authorTag.count + 1))) {
-            return k
-        }
+        if let (k, _) = parseTag(ann) { return k }
         switch ann.type {
         case "Highlight": return .marker
         case "Underline", "StrikeOut": return .underline

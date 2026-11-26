@@ -205,6 +205,88 @@ do {
     FileManager.default.createFile(atPath: moved.path, contents: Data())
     check(s2.state(for: moved) == b && s2.state(for: oldPath) == nil, "bookmarks follow a moved file (same name, old path gone)")
 }
+// Marker opacity survives reload + move (PDFKit forgets it; Folio's tag keeps it).
+do {
+    func brightest(_ page: PDFPage, in r: NSRect) -> CGFloat {
+        let h = page.bounds(for: .cropBox).height
+        let rep = NSBitmapImageRep(data: page.thumbnail(of: page.bounds(for: .cropBox).size, for: .cropBox).tiffRepresentation!)!
+        var best: CGFloat = 0
+        for x in Int(r.minX) + 2..<Int(r.maxX) - 2 { for y in Int(h - r.maxY) + 2..<Int(h - r.minY) - 2 {
+            let c = rep.colorAt(x: x, y: y)!; best = max(best, c.redComponent + c.greenComponent + c.blueComponent) } }
+        return best
+    }
+    let base = small.deletingLastPathComponent()
+    for (label, legacy) in [("tagged", false), ("legacy tag", true)] {
+        let d = PDFDocument(url: small)!
+        let m = AnnotationFactory.highlight(tool: tool("marker-green"), rects: [NSRect(x: 300, y: 40, width: 100, height: 14)])!
+        if legacy { m.userName = "Folio/marker" }
+        check(legacy || m.userName == "Folio/marker@0.40", "marker tag records opacity (\(m.userName ?? "nil"))")
+        d.page(at: 0)!.addAnnotation(m)
+        let u1 = base.appendingPathComponent("opacity-1.pdf"); _ = d.write(to: u1)
+        let d2 = PDFDocument(url: u1)!
+        let r = d2.page(at: 0)!.annotations.first { $0.type == "Highlight" && abs($0.bounds.minY - 40) < 1 }!
+        AnnotationFactory.restoreOpacity(r)
+        AnnotationFactory.move(r, by: NSPoint(x: 0, y: 30))
+        let u2 = base.appendingPathComponent("opacity-2.pdf"); _ = d2.write(to: u2)
+        let v = brightest(PDFDocument(url: u2)!.page(at: 0)!, in: r.bounds)
+        check(v > 2.3, "\(label): moved marker from an earlier session stays translucent (brightness \(String(format: "%.2f", v)), opaque ≈ 1.8)")
+    }
+}
+// Recovery journal: build from changed pages, restore into the unedited file, identical rendering.
+do {
+    let edited = PDFDocument(url: small)!
+    let target = small.deletingLastPathComponent().appendingPathComponent("journal-target.pdf")
+    try? FileManager.default.removeItem(at: target)
+    try? FileManager.default.copyItem(at: small, to: target)
+    let p0 = edited.page(at: 0)!
+    p0.addAnnotation(AnnotationFactory.highlight(tool: tool("marker-green"), rects: [NSRect(x: 60, y: 650, width: 120, height: 14)])!)
+    if let first = p0.annotations.first(where: { AnnotationFactory.isEditable($0) }) { AnnotationFactory.move(first, by: NSPoint(x: 5, y: 5)) }
+    guard let (data, pages) = RecoveryJournal.build(doc: edited, pages: [0]) else { fatalError("journal build") }
+    RecoveryJournal.write(data, meta: .init(path: target.standardizedFileURL.path, pages: pages, base: FileStamp.of(target), date: Date()), for: target)
+    let pending = RecoveryJournal.pending(for: target)
+    check(pending?.0.pages == [0], "journal written and found")
+    let fresh = PDFDocument(url: target)!
+    RecoveryJournal.apply(pending!.1, meta: pending!.0, to: fresh)
+    func px(_ p: PDFPage) -> [UInt8] {
+        let r = p.bounds(for: .cropBox); let w = Int(r.width), h = Int(r.height)
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        p.draw(with: .cropBox, to: ctx)
+        return Array(UnsafeBufferPointer(start: ctx.data!.assumingMemoryBound(to: UInt8.self), count: w * h * 4))
+    }
+    // Compare with the edited page as a real save would store it.
+    let savedEdit = small.deletingLastPathComponent().appendingPathComponent("journal-edited.pdf")
+    _ = edited.write(to: savedEdit)
+    let reference = PDFDocument(url: savedEdit)!.page(at: 0)!
+    // Restoring is followed by a save, so compare the saved result (an annotation just moved into a document
+    // draws its colours slightly differently until the document is written and reopened).
+    let restoredURL = small.deletingLastPathComponent().appendingPathComponent("journal-restored.pdf")
+    _ = fresh.write(to: restoredURL)
+    let restored = PDFDocument(url: restoredURL)!
+    // Folio shows markers with their opacity restored (PDFKit draws reloaded ones darker), so compare that view.
+    for p in [reference, restored.page(at: 0)!] { for an in p.annotations { AnnotationFactory.restoreOpacity(an) } }
+    let a = px(reference), b = px(restored.page(at: 0)!)
+    let diff = zip(a, b).filter { abs(Int($0) - Int($1)) > 24 }.count
+    if diff > 0 {
+        let w = Int(reference.bounds(for: .cropBox).width)
+        var minX = Int.max, maxX = 0, minY = Int.max, maxY = 0
+        for k in stride(from: 0, to: a.count, by: 4) where abs(Int(a[k]) - Int(b[k])) > 24 || abs(Int(a[k+1]) - Int(b[k+1])) > 24 || abs(Int(a[k+2]) - Int(b[k+2])) > 24 {
+            let x = (k / 4) % w, y = (k / 4) / w
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        }
+        print("  diff box (top-down px):", minX, minY, maxX, maxY)
+        render(reference, to: outDir.appendingPathComponent("journal-ref.png"))
+        render(restored.page(at: 0)!, to: outDir.appendingPathComponent("journal-got.png"))
+        print("  ref:", reference.annotations.map { "\($0.type!) \($0.bounds.integral)" })
+        print("  got:", fresh.page(at: 0)!.annotations.map { "\($0.type!) \($0.bounds.integral)" })
+        print("  restored-saved count:", restored.page(at: 0)!.annotations.count, "ref", reference.annotations.count,
+              "restored hl tags:", restored.page(at: 0)!.annotations.filter { $0.type == "Highlight" }.map { $0.userName ?? "-" })
+        print("  ref hl tags:", reference.annotations.filter { $0.type == "Highlight" }.map { $0.userName ?? "-" })
+    }
+    check(diff == 0 && fresh.page(at: 0)!.annotations.count == reference.annotations.count, "journal restores the page identically (\(diff) px differ)")
+    RecoveryJournal.delete(for: target)
+    check(RecoveryJournal.pending(for: target) == nil, "journal deleted")
+}
 check(ToolConfig.validate(ToolConfig.defaults).isEmpty, "default tools valid")
 var bad = ToolConfig.defaults; bad[1].key = "1"
 check(!ToolConfig.validate(bad).isEmpty, "duplicate shortcut rejected")

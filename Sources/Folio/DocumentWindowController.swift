@@ -70,6 +70,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         setupViews()
         setupToolbar()
         setupBookmarkBar()
+        baseStamp = FileStamp.of(url)
         doc.delegate = self
         updatePageField()
     }
@@ -238,18 +239,93 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     // MARK: Autosave
 
-    func annotationsDidChange() {
+    func annotationsDidChange(pages: [PDFPage]) {
         editGeneration += 1
         dirty = true
+        for p in pages {
+            let i = pdfDocument.index(for: p)
+            if i != NSNotFound, i >= 0 { journalPages[i] = editGeneration }
+        }
+        scheduleJournal()
         scheduleSave()
     }
 
-    private func scheduleSave() {
-        saveTimer?.cancel()
-        // Saving runs in the background, so the pause only limits how often a big file is rewritten.
-        let delay = max(1.5, min(5, lastSaveDuration))
-        saveTimer = Debounce.after(delay) { [weak self] in self?.saveNow() }
+    /// Files that take over a second to write (or are over 20 MB) are "big": they are saved at most every
+    /// `bigFileSaveInterval` while you edit (each save rewrites the whole file and iCloud re-uploads it),
+    /// relying on the recovery journal in between. Close, app switch and quit still save at once.
+    static var bigFileSaveInterval: TimeInterval = 30
+    private var isBigFile: Bool {
+        forceBigFileForTest || lastSaveDuration > 1 || (FileStamp.of(url)?.size ?? 0) > 20_000_000
     }
+    var forceBigFileForTest = false
+    var isDirtyForTest: Bool { dirty }
+
+    private func scheduleSave() {
+        if isBigFile {
+            if saveTimer == nil {   // a maximum wait, not a debounce: further edits don't postpone it
+                saveTimer = Debounce.after(Self.bigFileSaveInterval) { [weak self] in self?.saveNow() }
+            }
+            return
+        }
+        saveTimer?.cancel()
+        saveTimer = Debounce.after(1.5) { [weak self] in self?.saveNow() }
+    }
+
+    // MARK: Recovery journal
+
+    /// Page index → edit generation of its last change, for pages changed since the last save that covered them.
+    private var journalPages: [Int: Int] = [:]
+    private var journalTimer: DispatchWorkItem?
+    /// The file's stamp when it was opened or last saved by Folio.
+    private var baseStamp: FileStamp?
+
+    private func scheduleJournal() {
+        journalTimer?.cancel()
+        journalTimer = Debounce.after(0.3) { [weak self] in self?.writeJournal() }
+    }
+
+    /// Rewrites the recovery file with the current annotations of every page changed since the last save.
+    func writeJournal() {
+        journalTimer?.cancel(); journalTimer = nil
+        let file = url
+        guard !journalPages.isEmpty else {
+            JournalQueue.queue.async { RecoveryJournal.delete(for: file) }
+            return
+        }
+        guard let (data, pages) = RecoveryJournal.build(doc: pdfDocument, pages: Array(journalPages.keys)) else { return }
+        let meta = RecoveryJournal.Meta(path: file.standardizedFileURL.path, pages: pages, base: baseStamp, date: Date())
+        JournalQueue.queue.async { RecoveryJournal.write(data, meta: meta, for: file) }
+    }
+
+    /// On open: if Folio quit before saving some edits, offer them back.
+    func offerRecovery() {
+        guard let (meta, journal) = RecoveryJournal.pending(for: url) else { return }
+        let changedSince = meta.base != nil && meta.base != FileStamp.of(url)
+        let fmt = DateFormatter(); fmt.dateStyle = .medium; fmt.timeStyle = .short
+        let alert = NSAlert()
+        alert.messageText = "Restore unsaved annotations?"
+        alert.informativeText = "Folio closed before saving annotations on \(meta.pages.count == 1 ? "1 page" : "\(meta.pages.count) pages") of “\(url.lastPathComponent)” (\(fmt.string(from: meta.date)))."
+            + (changedSince ? "\n\nThe file has changed since then. Restoring replaces Folio's annotations on those pages." : "")
+            + "\n\nIf you don't restore, they're kept in the Backups folder."
+        alert.addButton(withTitle: "Restore")
+        alert.addButton(withTitle: "Don't Restore")
+        let restore = (Self.recoveryAnswerForTest.map { $0 } ?? (alert.runModal() == .alertFirstButtonReturn))
+        if restore {
+            // Restored annotations keep pointing into the journal's PDF data (their appearance streams); it must
+            // outlive them, or drawing them reads freed memory (crashed in testing).
+            recoveredJournals.append(journal)
+            let pages = RecoveryJournal.apply(journal, meta: meta, to: pdfDocument)
+            Log.info("restored unsaved annotations on pages \(pages.map { $0 + 1 }) of \(url.lastPathComponent)")
+            annotationsDidChange(pages: pages.compactMap { pdfDocument.page(at: $0) })
+            saveNow()
+        } else {
+            Log.info("recovery declined for \(url.lastPathComponent); journal archived to Backups")
+            RecoveryJournal.archive(for: url)
+        }
+    }
+    private var recoveredJournals: [PDFDocument] = []
+    /// Self-test: answer the recovery question without a dialog.
+    static var recoveryAnswerForTest: Bool?
 
     /// Starts a save of the current state. The document is snapshotted with `PDFDocument.copy()` (about 1 ms,
     /// independent of later edits; verified) and written on a serial background queue, so a big file's
@@ -266,6 +342,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         }
         let copied: Any = Log.timed("snapshot") { self.pdfDocument.copy() }
         guard let snapshot = copied as? PDFDocument else { return }
+        writeJournal()   // the journal covers this save until it has finished
         let generation = editGeneration
         let url = self.url
         saveInFlight = true
@@ -306,6 +383,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
             return
         }
         saveFailedShown = false
+        baseStamp = FileStamp.of(url)
+        journalPages = journalPages.filter { $0.value > generation }
+        writeJournal()   // deletes it when everything is saved
         if generation == editGeneration { dirty = false }
         if dirty {
             if resaveWanted || closed { resaveWanted = false; saveNow() } else { scheduleSave() }
@@ -341,7 +421,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         bookmarkSidebar.onRename = { [weak self] id in self?.renameBookmark(id: id) }
         bookmarkSidebar.onRemove = { [weak self] id in self?.removeBookmark(id: id) }
         pdfView.onJump = { [weak self] in self?.pageJumped() }
-        pdfView.onViewMoved = { [weak self] in self?.scheduleFollow(); self?.updateRibbons() }
+        pdfView.onViewMoved = { [weak self] in self?.scheduleFollow(); self?.updateRibbons(); self?.normalizeVisiblePages() }
     }
 
     /// Loads this file's bookmarks (after the reading position is restored, so Current starts there).
@@ -351,6 +431,25 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         state.clamp(pageCount: pdfDocument.pageCount)
         bookmarks = state
         bookmarksChanged()
+    }
+
+    /// Pages whose Folio markers have had their opacity restored for display (see `AnnotationFactory.stamp`):
+    /// PDFKit draws reloaded markers much darker than when they were made. Done lazily as pages come into view;
+    /// it changes nothing in the file and doesn't mark the document edited.
+    private var normalizedPages = Set<Int>()
+
+    private func normalizeVisiblePages() {
+        for page in pdfView.visiblePages {
+            let i = pdfDocument.index(for: page)
+            guard i != NSNotFound, normalizedPages.insert(i).inserted else { continue }
+            var changed = false
+            for a in page.annotations where a.type == "Highlight" {
+                let before = a.color.alphaComponent
+                AnnotationFactory.restoreOpacity(a)
+                changed = changed || a.color.alphaComponent != before
+            }
+            if changed { pdfView.annotationsChanged(on: page) }
+        }
     }
 
     /// A bookmark spot is the point a little below the top edge of the visible area (view pixels), so it lands
@@ -526,7 +625,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     /// Call after the window is on screen, so the view has its final size.
     func restorePosition() {
-        defer { positionRestored = true; updatePageField(); loadBookmarks() }
+        defer { positionRestored = true; updatePageField(); loadBookmarks(); normalizeVisiblePages() }
         guard let pos = PositionStore.get(url), pos.page < pdfDocument.pageCount, let page = pdfDocument.page(at: pos.page) else { return }
         window?.contentView?.layoutSubtreeIfNeeded()
         if !pos.autoScales { pdfView.autoScales = false; pdfView.scaleFactor = CGFloat(pos.scale) }
@@ -795,6 +894,11 @@ enum SaveQueue {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
     }
+}
+
+/// Journal writes and deletes, in order.
+enum JournalQueue {
+    static let queue = DispatchQueue(label: "folio.journal", qos: .userInitiated)
 }
 
 enum Debounce {

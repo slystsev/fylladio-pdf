@@ -35,11 +35,18 @@ See docs/DESIGN.md for decisions and docs/PLAN.md for status.
 
 ## Bookmarks
 
-A bar under the toolbar holds up to 4 bookmarks: **Current**, **Review**, and up to 2 of your own (**+**, e.g. "Answers").
+The left column holds up to 4 bookmarks, each with its own ribbon colour. A new file starts with one, **Current**, not yet placed: click it to put it where you are.
 
-- Click a name to go there. The bookmark you went to is highlighted and **follows your reading** as you scroll.
-- Click the **pin** next to a name to move that bookmark to this page; it then follows you.
-- Going to a page number, a search result, a link or a thumbnail leaves every bookmark where it was (the bar says "No bookmark follows you"). Pin one if you meant to bring it along.
+- Click a bookmark to go there. It's then highlighted ("p. N · with you") and **moves with you as you read**. Its ribbon hangs from the top of the page view.
+- Other bookmarks show as ribbons on the edge of their pages.
+- Click the **pin** next to a bookmark to move it to this page; it then moves with you.
+- Going to a page number, a search result, a link or a thumbnail leaves every bookmark where it was, and the column reminds you that no bookmark moves with you. Pin one if you meant to bring it along.
 - **Back** (⌘[) toggles between where you were before the last jump and where you are, e.g. Current ⇄ Answers.
-- Keys: ⌃1–⌃4 go to a bookmark, ⌃⌥1–⌃⌥4 pin it here, ⌘D adds one. Right-click a bookmark to rename or remove it.
+- **+** adds a bookmark on this page (⌘D). Keys: ⌃1–⌃4 go to a bookmark, ⌃⌥1–⌃⌥4 pin it here. Right-click to rename or remove.
+- Thumbnails (⌥⌘S) appear below the bookmarks. Drag the column edge to resize it.
 
+## Saving and recovery
+
+- Edits save automatically in the background. Big files (over 20 MB) save at most every 30 s while you edit, and always when you close the window, switch apps or quit.
+- Every edit also goes straight into a small recovery file. If Folio ever closes unexpectedly, it offers your unsaved annotations back the next time you open the file.
+- Backups of each file before Folio's first save in a session: Folio menu ▸ Show Backups Folder.

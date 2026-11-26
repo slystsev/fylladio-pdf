@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     var controllersForTest: [DocumentWindowController] { controllers }
+    private let isSelfTest = ProcessInfo.processInfo.environment["FOLIO_SELFTEST"] != nil
     private var selfTest: SelfTest?
     private var selfTestActivity: NSObjectProtocol?
 
@@ -55,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controllers.forEach { $0.flush() }
         Log.timed("quit: waiting for saves", threshold: 0) { SaveQueue.waitForAll() }
+        JournalQueue.queue.sync {}   // pending journal deletes
         BookmarkStore.shared.flush()
         rememberOpenFiles(controllers.map(\.url))
         terminating = true
@@ -101,8 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let key = NSApp.keyWindow, key.tabbingMode != .disallowed, controllers.count > 1 {
             key.addTabbedWindow(c.window!, ordered: .above)
         }
+        if isSelfTest { c.window?.alphaValue = 0; c.window?.ignoresMouseEvents = true }
         Log.timed("show window \(url.lastPathComponent)") { c.showWindow(nil) }
         Log.timed("restore position \(url.lastPathComponent)") { c.restorePosition() }
+        c.offerRecovery()
         c.window?.makeFirstResponder(c.pdfView)
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         rememberOpenFiles(controllers.map(\.url))
@@ -133,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             settings?.reset(tools: tools)
         }
+        if isSelfTest { settings?.window?.alphaValue = 0; settings?.window?.ignoresMouseEvents = true }
         settings?.showWindow(nil)
         settings?.window?.makeKeyAndOrderFront(nil)
     }

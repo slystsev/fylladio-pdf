@@ -45,10 +45,18 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Jump detection: page field, first/last, search, links, thumbnails; reading (scroll, Page Up/Down) follows
 - [x] UI self-test (61 checks)
 
+## Milestone 5: user feedback round 4 (done 2026-11-26)
+- [x] Bookmarks: left column, ribbon colours, filled active row with live page, ribbons on pages, one unplaced Current to start, click-to-place, migration (D17c)
+- [x] Narrow, resizable left column with wide divider grab area; thumbnails inside it
+- [x] Recovery journal + 30 s cadence for big files (D7, D18); crash found and fixed (journal keep-alive)
+- [x] Marker opacity kept across reloads and moves (D19)
+- [x] Self-test isolation: invisible (accessory app, see-through windows), own settings, bookmarks, logs, recovery folder, app copy
+- [x] Tests: FolioCheck all pass; UI self-test 75 checks
+
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
-- [ ] DECISION PENDING (asked user 2026-11-26): big-file saves. Option A: incremental-save writer (own PDF parser/writer, xref streams, object streams; appends only changed objects; risky). Option B: crash journal (sidecar of changed pages' annotations, NSSecureCoding) + save big files at most every ~30 s while editing, plus on close/switch/quit. B is much simpler.
+- [x] Option B chosen (2026-11-26): recovery journal (D18) + big files saved at most every 30 s (D7). Option A (incremental writer) not planned.
 - [x] App icon (scripts/make-icon.swift → Resources/Folio.icns)
 - [ ] Developer ID signing + notarization (needs the user's Apple Developer account)
 - Dropped: TOC sidebar (the user's book has a 1-entry outline; bookmarks cover it); typing digits to jump (digits are tool keys; ⌥⌘G exists)
