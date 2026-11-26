@@ -59,7 +59,7 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
-- [x] Option B chosen (2026-11-26): recovery journal (D18) + big files saved at most every 30 s (D7). Option A (incremental writer) not planned.
+- [x] Option B chosen (2026-11-26): recovery journal (D18) + big files saved at most every 30 s (D7). Option A (incremental writer) ruled out by the user: too much custom PDF-writer code for the gain.
 - [x] App icon (scripts/make-icon.swift → Resources/Folio.icns)
 - [ ] Developer ID signing + notarization (needs the user's Apple Developer account)
 - Dropped: TOC sidebar (the user's book has a 1-entry outline; bookmarks cover it); typing digits to jump (digits are tool keys; ⌥⌘G exists)
