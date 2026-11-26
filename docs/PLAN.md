@@ -61,6 +61,8 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)
 - [x] Option B chosen (2026-11-26): recovery journal (D18) + big files saved at most every 30 s (D7). Option A (incremental writer) ruled out by the user: too much custom PDF-writer code for the gain.
 - [x] App icon (scripts/make-icon.swift → Resources/Folio.icns)
-- [ ] Developer ID signing + notarization (needs the user's Apple Developer account)
+- [ ] Developer ID signing + notarization (needs the user's Apple Developer account). Until then releases are
+      ad-hoc signed and show a Gatekeeper warning on first open; README documents the workaround.
+- [x] Published: github.com/slystsev/folio (public, MIT), release v0.1.0 with Folio-0.1.0.zip (arm64)
 - Dropped: TOC sidebar (the user's book has a 1-entry outline; bookmarks cover it); typing digits to jump (digits are tool keys; ⌥⌘G exists)
 - [ ] Optional: eraser tool

@@ -3,11 +3,31 @@
 A fast, lightweight native macOS PDF reader and annotator built like a pencil case:
 a few pre-loaded markers and pens, each one keypress away.
 
-## Build & run
+Features: markers that work on scans too, straight and curly underlines, a smoothed pen, text notes,
+move/resize/recolour, bookmarks that move with your reading, search, go to page, print, background
+autosave with crash recovery. Requires macOS 13 or later.
+
+## Install (download)
+
+1. Download `Folio-<version>.zip` from [Releases](../../releases) and unzip it.
+2. Move `Folio.app` to Applications.
+3. **First open shows a warning.** The build is not notarized by Apple (no paid developer signature yet),
+   so macOS says it "cannot verify" the app or that it's "damaged". Open it anyway, once:
+   - **Finder:** right-click (or Control-click) `Folio.app` ▸ **Open** ▸ **Open**; or, on recent macOS,
+     **System Settings ▸ Privacy & Security**, scroll down, **Open Anyway** next to Folio.
+   - **Terminal (if macOS calls it damaged):** `xattr -dr com.apple.quarantine /Applications/Folio.app`
+
+   After that it opens normally. The release build is for Apple Silicon Macs; on Intel, build from source.
+
+## Build from source
 
     scripts/build-app.sh          # → dist/Folio.app (needs only Xcode Command Line Tools)
     open dist/Folio.app
     cp -R dist/Folio.app /Applications/   # optional; then "Open With → Folio" in Finder
+
+Tests: `swift run -c release FolioCheck <outDir>` (headless) and `scripts/test-ui.sh <outDir>`
+(drives the real window invisibly). Design decisions and plan: [docs/DESIGN.md](docs/DESIGN.md),
+[docs/PLAN.md](docs/PLAN.md).
 
 ## Use
 
@@ -50,3 +70,7 @@ The left column holds up to 4 bookmarks in page order, each with its own ribbon 
 - Edits save automatically in the background. Big files (over 20 MB) save at most every 30 s while you edit, and always when you close the window, switch apps or quit.
 - Every edit also goes straight into a small recovery file. If Folio ever closes unexpectedly, it offers your unsaved annotations back the next time you open the file.
 - Backups of each file before Folio's first save in a session: Folio menu ▸ Show Backups Folder.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
