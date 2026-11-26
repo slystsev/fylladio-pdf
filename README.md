@@ -1,14 +1,35 @@
 # Fylladio
 
-**Fylladio** (φυλλάδιο, Greek for "booklet, worksheet"): a fast, lightweight native macOS PDF reader and
-annotator for study books, built like a pencil case: a few pre-loaded markers and pens, each one keypress away.
+A lightweight, fast PDF reader for the Mac, made for marking up study books as simply as a paper one.
+
+When you study from PDFs, you end up using lots of highlight colours: yellow for new words, green for
+examples, red for your mistakes, and so on. Every switch means a trip to the toolbar and a colour menu. Half
+the book is a scan, so the text highlighter has nothing to grab. The file is a few hundred megabytes and the
+app freezes for a moment each time it saves. Then the next day you open it and scroll around looking for
+where you stopped.
+
+Fylladio is built around exactly those annoyances:
+
+- **The usual paper tools, each one click or one key away.** Highlight, underline, draw, write. Each is as
+  easy to grab as a pen on your desk: they all sit right in the toolbar, and for fast work each has its own
+  hotkey. Colours, fonts and sizes are set once in Settings, so you never pick them while marking something.
+- **Markers work on scans.** Drag across text and it marks line by line. Start the drag anywhere else and
+  you get a see-through rectangle, so scanned and photographed pages work too.
+- **Big files don't stall.** A scanned book of a few hundred megabytes opens instantly, and saving happens
+  in the background while you keep working.
+- **Your marks aren't lost.** Every edit goes into a small recovery file right away, and the first change in
+  each session makes a backup of the file. Even after a crash, it offers your annotations back on the next
+  launch.
+- **It keeps your place.** Files reopen where you left off. The "Current" bookmark moves along as you read,
+  like a ribbon in a paper book. Jump to the answers at the back and return in one click, or put a bookmark
+  on any other part you keep coming back to.
+- **Nothing is locked in.** Annotations are saved into the PDF, so Preview, Acrobat and other apps show them.
+  (Underlines and pen strokes show up there as drawings.)
+
+The name is φυλλάδιο, Greek for "booklet" or "worksheet". Requires macOS 13 or later.
 
 *Formerly "Folio" (v0.1.0). On first launch Fylladio copies over Folio's settings, tools, bookmarks and backups,
 and recognises annotations Folio made.*
-
-Features: markers that work on scans too, straight and curly underlines, a smoothed pen, text notes,
-move/resize/recolour, bookmarks that move with your reading, search, go to page, print, background
-autosave with crash recovery. Requires macOS 13 or later.
 
 ## Install (download)
 
@@ -64,8 +85,6 @@ Tests: `swift run -c release FylladioCheck <outDir>` (headless) and `scripts/tes
 - Saves automatically into the PDF. The first change to a file in each session makes a backup
   (Fylladio ▸ Show Backups Folder). Reopens files where you left off.
 - Customise tools: Fylladio ▸ Settings… (⌘,). Colour, opacity, width, font and size, name and shortcut, 1–5 tools per kind.
-
-See docs/DESIGN.md for decisions and docs/PLAN.md for status.
 
 ## Bookmarks
 
