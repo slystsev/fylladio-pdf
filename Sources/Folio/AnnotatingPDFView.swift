@@ -69,7 +69,39 @@ final class AnnotatingPDFView: PDFView, NSTextViewDelegate {
     @objc private func viewMoved() {
         updateSelectionOutline()
         repositionEditor()
+        onViewMoved?()
     }
+
+    // MARK: Jumps vs reading
+
+    /// Called after the visible area changes (scrolling, zoom, jumps).
+    var onViewMoved: (() -> Void)?
+    /// Called just before a jump that wasn't made through `goQuietly`: page number, search result, link,
+    /// thumbnail, first/last page. The view still shows the spot being left.
+    var onJump: (() -> Void)?
+    private var jumpDepth = 0
+
+    /// Navigates without counting as a jump (bookmarks, Back, restoring position, Page Up/Down).
+    func goQuietly(_ body: () -> Void) {
+        jumpDepth += 1
+        body()
+        jumpDepth -= 1
+    }
+
+    /// Wraps a jump made by Folio itself (e.g. showing a search result) so it is reported like other jumps.
+    func jumping(_ body: () -> Void) {
+        if jumpDepth == 0 { onJump?() }
+        jumpDepth += 1   // PDFKit's go(to:) variants call each other; report once
+        body()
+        jumpDepth -= 1
+    }
+
+    override func go(to destination: PDFDestination) { jumping { super.go(to: destination) } }
+    override func go(to page: PDFPage) { jumping { super.go(to: page) } }
+    override func goToFirstPage(_ sender: Any?) { jumping { super.goToFirstPage(sender) } }
+    override func goToLastPage(_ sender: Any?) { jumping { super.goToLastPage(sender) } }
+    override func goToNextPage(_ sender: Any?) { goQuietly { super.goToNextPage(sender) } }
+    override func goToPreviousPage(_ sender: Any?) { goQuietly { super.goToPreviousPage(sender) } }
 
     // MARK: Mouse
 

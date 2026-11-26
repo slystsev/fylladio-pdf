@@ -39,6 +39,12 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - Note: the user's round-3 test ran a Folio launched before the round-2 fixes (12:30 vs 12:43); stalls and the missing cross-page move are expected there. Re-test pending.
 - Found: 41 Preview inks in the user's file have a collapsed /Rect (-2,-2,4,4); they are invisible 1 pt dots from Aug–Sep, harmless.
 
+## Milestone 4: bookmarks (done 2026-11-26)
+- [x] BookmarkState rules + store (FolioCore), unit-tested in FolioCheck
+- [x] Bookmark bar (Back, [name|pin] ×4, +), Go menu items ⌃1–4 / ⌃⌥1–4 / ⌘D, rename/remove via right-click
+- [x] Jump detection: page field, first/last, search, links, thumbnails; reading (scroll, Page Up/Down) follows
+- [x] UI self-test (61 checks)
+
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)

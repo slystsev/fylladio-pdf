@@ -32,9 +32,15 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     private var searchQuery = ""
     var searchResults: [PDFSelection] = []
     private var searchIndex = -1
+    var searchIndexForTest: Int { searchIndex }
     private var searching = false
 
     var onClose: ((DocumentWindowController) -> Void)?
+
+    // Bookmarks (see BookmarkState for the rules)
+    let bookmarkBar = BookmarkBarView()
+    private(set) var bookmarks = BookmarkState.initial(reading: nil)
+    private var followTimer: DispatchWorkItem?
 
     init?(url: URL, tools: [ToolSpec]) {
         guard let doc = PDFDocument(url: url) else { return nil }
@@ -43,7 +49,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         self.tools = tools
         self.palette = ToolPaletteView(tools: tools)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 1100),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable],  // not full-size: the PDF's "top" must be the visible top (bookmarks, position)
                               backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .unified
@@ -55,6 +61,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         window.tabbingMode = .preferred
         setupViews()
         setupToolbar()
+        setupBookmarkBar()
         doc.delegate = self
         updatePageField()
     }
@@ -288,6 +295,149 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         }
     }
 
+    // MARK: Bookmarks
+
+    private func setupBookmarkBar() {
+        let acc = NSTitlebarAccessoryViewController()
+        acc.view = bookmarkBar
+        acc.layoutAttribute = .bottom
+        window?.addTitlebarAccessoryViewController(acc)
+        bookmarkBar.onGo = { [weak self] id in self?.goToBookmark(id: id) }
+        bookmarkBar.onPin = { [weak self] id in self?.pinBookmark(id: id) }
+        bookmarkBar.onBack = { [weak self] in self?.goBack(nil) }
+        bookmarkBar.onAdd = { [weak self] in self?.addBookmark(nil) }
+        bookmarkBar.onRename = { [weak self] id in self?.renameBookmark(id: id) }
+        bookmarkBar.onRemove = { [weak self] id in self?.removeBookmark(id: id) }
+        pdfView.onJump = { [weak self] in self?.pageJumped() }
+        pdfView.onViewMoved = { [weak self] in self?.scheduleFollow() }
+    }
+
+    /// Loads this file's bookmarks (after the reading position is restored, so Current starts there).
+    private func loadBookmarks() {
+        var state = BookmarkStore.shared.state(for: url) ?? .initial(reading: currentSpot())
+        state.clamp(pageCount: pdfDocument.pageCount)
+        bookmarks = state
+        bookmarksChanged()
+    }
+
+    /// A bookmark spot is the point a little below the top edge of the visible area (view pixels), so it lands
+    /// on the page you see rather than in the gap between pages; `show` puts it back at the same height.
+    private let spotInset: CGFloat = 12
+
+    func currentSpot() -> Spot? {
+        let b = pdfView.bounds
+        let p = NSPoint(x: b.minX + 1, y: pdfView.isFlipped ? b.minY + spotInset : b.maxY - spotInset)
+        guard let page = pdfView.page(for: p, nearest: true) else { return nil }
+        let pt = pdfView.convert(p, to: page)
+        return Spot(page: pdfDocument.index(for: page), x: Double(pt.x), y: Double(pt.y))
+    }
+
+    private func show(_ spot: Spot) {
+        guard let page = pdfDocument.page(at: min(max(spot.page, 0), pdfDocument.pageCount - 1)) else { return }
+        let up = spotInset / max(pdfView.scaleFactor, 0.01)
+        pdfView.goQuietly { pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: spot.x, y: spot.y + up))) }
+        updatePageField()
+    }
+
+    private func bookmarksChanged() {
+        followTimer?.cancel(); followTimer = nil
+        BookmarkStore.shared.set(bookmarks, for: url)
+        bookmarkBar.reload(bookmarks) { [weak self] i in
+            guard let self, let p = self.pdfDocument.page(at: i) else { return "\(i + 1)" }
+            return p.label ?? "\(i + 1)"
+        }
+    }
+
+    /// Scrolling / reading: the active bookmark follows (debounced).
+    private func scheduleFollow() {
+        guard positionRestored, bookmarks.activeID != nil else { return }
+        followTimer?.cancel()
+        followTimer = Debounce.after(0.3) { [weak self] in self?.followNow() }
+    }
+
+    private func followNow() {
+        followTimer?.cancel(); followTimer = nil
+        guard positionRestored, let here = currentSpot() else { return }
+        let before = bookmarks.active?.spot.page
+        bookmarks.follow(here)
+        BookmarkStore.shared.set(bookmarks, for: url)
+        if bookmarks.active?.spot.page != before { bookmarksChanged() }  // tooltips show page numbers
+    }
+
+    /// A jump not made through a bookmark: no bookmark follows afterwards.
+    private func pageJumped() {
+        guard positionRestored, let here = currentSpot() else { return }
+        bookmarks.jumpElsewhere(from: here)
+        bookmarksChanged()
+    }
+
+    func goToBookmark(id: String) {
+        guard let here = currentSpot() else { return }
+        let target = bookmarks.jump(to: id, from: here)
+        bookmarksChanged()
+        if let target { show(target) }
+    }
+
+    func pinBookmark(id: String) {
+        guard let here = currentSpot() else { return }
+        bookmarks.pin(id, at: here)
+        bookmarksChanged()
+    }
+
+    @objc func goToBookmark(_ sender: NSMenuItem) {
+        guard sender.tag >= 1, sender.tag <= bookmarks.bookmarks.count else { NSSound.beep(); return }
+        goToBookmark(id: bookmarks.bookmarks[sender.tag - 1].id)
+    }
+
+    @objc func pinBookmark(_ sender: NSMenuItem) {
+        guard sender.tag >= 1, sender.tag <= bookmarks.bookmarks.count else { NSSound.beep(); return }
+        pinBookmark(id: bookmarks.bookmarks[sender.tag - 1].id)
+    }
+
+    /// Toggles between the spot before the last jump and here.
+    @objc func goBack(_ sender: Any?) {
+        guard let here = currentSpot(), let target = bookmarks.goBack(from: here) else { NSSound.beep(); return }
+        bookmarksChanged()
+        show(target)
+    }
+
+    @objc func addBookmark(_ sender: Any?) {
+        guard bookmarks.canAdd else { NSSound.beep(); return }
+        askName(title: "Add a bookmark here", initial: bookmarks.bookmarks.count == 2 ? "Answers" : "Bookmark \(bookmarks.bookmarks.count + 1)") { [weak self] name in
+            guard let self, let here = self.currentSpot() else { return }
+            self.bookmarks.add(name: name, at: here)
+            self.bookmarksChanged()
+        }
+    }
+
+    func renameBookmark(id: String) {
+        guard let b = bookmarks.bookmark(id) else { return }
+        askName(title: "Rename bookmark", initial: b.name) { [weak self] name in
+            self?.bookmarks.rename(id, to: name)
+            self?.bookmarksChanged()
+        }
+    }
+
+    func removeBookmark(id: String) {
+        bookmarks.remove(id)
+        bookmarksChanged()
+    }
+
+    private func askName(title: String, initial: String, done: @escaping (String) -> Void) {
+        guard let w = window else { return }
+        let alert = NSAlert()
+        alert.messageText = title
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        field.stringValue = initial
+        alert.accessoryView = field
+        alert.addButton(withTitle: "OK"); alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: w) { r in
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if r == .alertFirstButtonReturn, !name.isEmpty { done(String(name.prefix(24))) }
+        }
+    }
+
     // MARK: Position
 
     @objc private func pageChanged() {
@@ -313,12 +463,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     /// Call after the window is on screen, so the view has its final size.
     func restorePosition() {
-        defer { positionRestored = true; updatePageField() }
+        defer { positionRestored = true; updatePageField(); loadBookmarks() }
         guard let pos = PositionStore.get(url), pos.page < pdfDocument.pageCount, let page = pdfDocument.page(at: pos.page) else { return }
         window?.contentView?.layoutSubtreeIfNeeded()
         if !pos.autoScales { pdfView.autoScales = false; pdfView.scaleFactor = CGFloat(pos.scale) }
         pdfView.layoutDocumentView()
-        pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: pos.x, y: pos.y)))
+        pdfView.goQuietly { pdfView.go(to: PDFDestination(page: page, at: NSPoint(x: pos.x, y: pos.y))) }
     }
 
     // MARK: Pages
@@ -351,8 +501,6 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     @objc func lastPage(_ sender: Any?) { pdfView.goToLastPage(sender) }
     @objc func nextPage(_ sender: Any?) { pdfView.goToNextPage(sender) }
     @objc func previousPage(_ sender: Any?) { pdfView.goToPreviousPage(sender) }
-    @objc func goBack(_ sender: Any?) { if pdfView.canGoBack { pdfView.goBack(sender) } }
-    @objc func goForward(_ sender: Any?) { if pdfView.canGoForward { pdfView.goForward(sender) } }
 
     // MARK: View
 
@@ -440,7 +588,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     private func show(_ sel: PDFSelection) {
         pdfView.setCurrentSelection(sel, animate: false)
-        pdfView.go(to: sel)
+        pdfView.jumping { pdfView.go(to: sel) }
     }
 
     @objc func findNext(_ sender: Any?) { if searchQuery.isEmpty { performFind(sender) } else { step(1) } }
@@ -503,6 +651,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     }
 
     func windowWillClose(_ notification: Notification) {
+        followNow()
         closed = true
         saveNow()
         savePosition()
@@ -512,6 +661,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     /// Called on app quit / deactivate.
     func flush() {
+        followNow()
         if dirty { saveNow() }
         savePosition()
     }
@@ -526,8 +676,16 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
             item.state = pdfView.displayMode == .singlePageContinuous ? .on : .off
         case #selector(twoPages(_:)):
             item.state = pdfView.displayMode == .twoUpContinuous ? .on : .off
-        case #selector(goBack(_:)): return pdfView.canGoBack
-        case #selector(goForward(_:)): return pdfView.canGoForward
+        case #selector(goBack(_:)): return bookmarks.back != nil
+        case #selector(goToBookmark(_:)):
+            guard item.tag <= bookmarks.bookmarks.count else { item.title = "Bookmark \(item.tag)"; return false }
+            let b = bookmarks.bookmarks[item.tag - 1]
+            item.title = "Go to “\(b.name)”"
+            item.state = b.id == bookmarks.activeID ? .on : .off
+        case #selector(pinBookmark(_:)):
+            guard item.tag <= bookmarks.bookmarks.count else { item.title = "Move Bookmark \(item.tag) Here"; return false }
+            item.title = "Move “\(bookmarks.bookmarks[item.tag - 1].name)” Here"
+        case #selector(addBookmark(_:)): return bookmarks.canAdd
         default: break
         }
         return true

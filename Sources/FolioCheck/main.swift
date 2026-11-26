@@ -155,6 +155,46 @@ do {
     let saved = PDFDocument(url: bgURL)!.page(at: 0)!.annotations.count
     check(bgError == nil && saved == before, "background snapshot save excludes \(edits) later edits (\(saved) == \(before))")
 }
+// Bookmarks: the physical-book rules.
+do {
+    var b = BookmarkState.initial(reading: Spot(page: 10))
+    check(b.activeID == "current" && b.bookmark("review")?.spot.page == 0, "bookmarks start: Current active at reading spot, Review at page 1")
+    b.follow(Spot(page: 12))
+    check(b.bookmark("current")?.spot.page == 12, "active bookmark follows reading")
+    b.jumpElsewhere(from: Spot(page: 13))                       // go to page 200
+    check(b.activeID == nil && b.bookmark("current")?.spot.page == 13 && b.back?.page == 13, "page jump detaches, Current stays where you left")
+    b.follow(Spot(page: 200))
+    check(b.bookmark("current")?.spot.page == 13, "detached reading moves no bookmark")
+    b.pin("current", at: Spot(page: 200))
+    check(b.activeID == "current" && b.bookmark("current")?.spot.page == 200, "pin moves Current here and makes it follow")
+    let toReview = b.jump(to: "review", from: Spot(page: 201))
+    check(toReview?.page == 0 && b.activeID == "review" && b.bookmark("current")?.spot.page == 201, "go to Review: Current keeps its place, Review follows")
+    b.follow(Spot(page: 3))
+    let backTo = b.goBack(from: Spot(page: 3))
+    check(backTo?.page == 201 && b.activeID == "current" && b.bookmark("review")?.spot.page == 3, "Back returns to Current and re-activates it")
+    let again = b.goBack(from: Spot(page: 201))
+    check(again?.page == 3 && b.activeID == "review", "Back again toggles to Review")
+    check(b.jump(to: "review", from: Spot(page: 4)) == nil && b.bookmark("review")?.spot.page == 4, "clicking the active bookmark stays put")
+    let ans = b.add(name: "Answers", at: Spot(page: 350))
+    _ = b.add(name: "Glossary", at: Spot(page: 360))
+    check(!b.canAdd && b.add(name: "Fifth", at: Spot(page: 1)) == nil, "at most 4 bookmarks")
+    b.remove("current"); b.remove(ans!)
+    check(b.bookmark("current") != nil && b.bookmark(ans!) == nil && b.canAdd, "Current can't be removed, others can")
+    b.clamp(pageCount: 100)
+    check(b.bookmarks.allSatisfy { $0.spot.page <= 99 }, "spots clamped to the page count")
+    // Store: survives reload, follows a renamed file.
+    let storeURL = outDir.appendingPathComponent("bookmarks.json")
+    try? FileManager.default.removeItem(at: storeURL)
+    let s1 = BookmarkStore(url: storeURL)
+    let oldPath = outDir.appendingPathComponent("gone-away.pdf")
+    s1.set(b, for: oldPath); s1.flush()
+    let s2 = BookmarkStore(url: storeURL)
+    check(s2.state(for: oldPath) == b, "bookmark store persists")
+    let moved = outDir.appendingPathComponent("elsewhere/gone-away.pdf")
+    try? FileManager.default.createDirectory(at: moved.deletingLastPathComponent(), withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: moved.path, contents: Data())
+    check(s2.state(for: moved) == b && s2.state(for: oldPath) == nil, "bookmarks follow a moved file (same name, old path gone)")
+}
 check(ToolConfig.validate(ToolConfig.defaults).isEmpty, "default tools valid")
 var bad = ToolConfig.defaults; bad[1].key = "1"
 check(!ToolConfig.validate(bad).isEmpty, "duplicate shortcut rejected")

@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controllers.forEach { $0.flush() }
         Log.timed("quit: waiting for saves", threshold: 0) { SaveQueue.waitForAll() }
+        BookmarkStore.shared.flush()
         rememberOpenFiles(controllers.map(\.url))
         terminating = true
         return .terminateNow
@@ -235,7 +236,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             add(m, "Last Page", #selector(DocumentWindowController.lastPage(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command])
             m.addItem(.separator())
             add(m, "Back", #selector(DocumentWindowController.goBack(_:)), "[")
-            add(m, "Forward", #selector(DocumentWindowController.goForward(_:)), "]")
+            m.addItem(.separator())
+            // Bookmark items: titles are filled in with the bookmark names when the menu is shown.
+            for n in 1...BookmarkState.maxCount {
+                let go = NSMenuItem(title: "Bookmark \(n)", action: #selector(DocumentWindowController.goToBookmark(_:)), keyEquivalent: "\(n)")
+                go.keyEquivalentModifierMask = [.control]; go.tag = n
+                m.addItem(go)
+            }
+            m.addItem(.separator())
+            for n in 1...BookmarkState.maxCount {
+                let pin = NSMenuItem(title: "Move Bookmark \(n) Here", action: #selector(DocumentWindowController.pinBookmark(_:)), keyEquivalent: "\(n)")
+                pin.keyEquivalentModifierMask = [.control, .option]; pin.tag = n
+                m.addItem(pin)
+            }
+            add(m, "Add Bookmark Here…", #selector(DocumentWindowController.addBookmark(_:)), "d", [.command])
         }
         submenu("Tools") { m in
             let ptr = NSMenuItem(title: "Pointer\t\tEsc", action: #selector(DocumentWindowController.chooseTool(_:)), keyEquivalent: "")

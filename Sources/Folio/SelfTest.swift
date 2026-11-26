@@ -296,7 +296,10 @@ final class SelfTest {
                 check(c.searchResults.count == view.document!.pageCount, "search found \(c.searchResults.count) results")
                 snap("05-search")
                 c.searchEntered() // next
-                check(view.currentPage.map { view.document!.index(for: $0) } == 1, "next result goes to page 2")
+                let r1 = c.searchResults[1], p1 = r1.pages.first!
+                let shown = view.convert(r1.bounds(for: p1), from: p1)
+                check(c.searchIndexForTest == 1 && view.document!.index(for: p1) == 1 && view.bounds.contains(shown),
+                      "next result (page 2) is on screen")
                 c.pageField.stringValue = "30"
                 c.pageFieldEntered()
             }),
@@ -314,6 +317,48 @@ final class SelfTest {
                 check(idx == 29, "position restored on reopen (page \(idx + 1))")
                 check(annCount(0) > 5, "annotations present after reopen")
                 snap("07-reopened")
+            }),
+            // Bookmarks: physical-book rules in the real window.
+            (0.3, { [self] in
+                check(c.bookmarkBar.nameButtons["current"] != nil && c.bookmarkBar.nameButtons["review"] != nil, "bookmark bar shows Current and Review")
+                c.pinBookmark(id: "current")
+                check(c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot.page == 29, "pin puts Current on page 30 (spot \(String(describing: c.bookmarks.bookmark("current")?.spot)), view page \(view.currentPage.map { view.document!.index(for: $0) } ?? -1), active \(c.bookmarks.activeID ?? "nil"))")
+                c.nextPage(nil)   // reading on (Page Down)
+            }),
+            (0.6, { [self] in
+                check(c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot.page == 30, "Current follows reading to page 31 (\(c.bookmarks.bookmark("current")?.spot.page ?? -1))")
+                c.pageField.stringValue = "45"; c.pageFieldEntered()
+            }),
+            (0.6, { [self] in
+                check(view.currentPage.map { view.document!.index(for: $0) } == 44, "page field jumps to 45")
+                check(c.bookmarks.activeID == nil && c.bookmarks.bookmark("current")?.spot.page == 30, "page jump: no bookmark follows, Current stays on 31")
+                check(!c.bookmarkBar.statusLabel.stringValue.isEmpty, "bar says no bookmark follows")
+                c.bookmarkBar.nameButtons["review"]!.performClick(nil)
+            }),
+            (0.6, { [self] in
+                check(view.currentPage.map { view.document!.index(for: $0) } == 0 && c.bookmarks.activeID == "review", "Review click goes to page 1 and Review follows")
+                c.bookmarkBar.backButton.performClick(nil)
+            }),
+            (0.6, { [self] in
+                check(view.currentPage.map { view.document!.index(for: $0) } == 44 && c.bookmarks.activeID == nil, "Back returns to page 45 (nothing following there)")
+                c.bookmarkBar.nameButtons["current"]!.performClick(nil)
+            }),
+            (0.6, { [self] in
+                check(view.currentPage.map { view.document!.index(for: $0) } == 30 && c.bookmarks.activeID == "current", "Current click returns to page 31")
+                view.go(to: view.document!.page(at: 9)!)   // like a thumbnail or link
+            }),
+            (0.6, { [self] in
+                check(c.bookmarks.activeID == nil && c.bookmarks.bookmark("current")?.spot.page == 30, "thumbnail/link jump leaves Current in place")
+                c.bookmarkBar.pinButtons["review"]!.performClick(nil)
+                check(c.bookmarks.activeID == "review" && c.bookmarks.bookmark("review")?.spot.page == 9, "one-click pin moves Review to page 10")
+                snap("09-bookmarks")
+                let bar = c.bookmarkBar
+                if let rep = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
+                    bar.cacheDisplay(in: bar.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("09-bookmark-bar.png"))
+                }
+                BookmarkStore.shared.flush()
+                check(BookmarkStore(url: out.appendingPathComponent("bookmarks.json")).state(for: c.url) == c.bookmarks, "bookmarks saved")
                 // Deliberate main-thread stall: the watchdog must log it and take a stack sample.
                 Thread.sleep(forTimeInterval: 1.8)
             }),

@@ -32,3 +32,14 @@ a few pre-loaded markers and pens, each one keypress away.
 - Customise tools: Folio ▸ Settings… (⌘,). Colour, opacity, width, font and size, name and shortcut, 1–5 tools per kind.
 
 See docs/DESIGN.md for decisions and docs/PLAN.md for status.
+
+## Bookmarks
+
+A bar under the toolbar holds up to 4 bookmarks: **Current**, **Review**, and up to 2 of your own (**+**, e.g. "Answers").
+
+- Click a name to go there. The bookmark you went to is highlighted and **follows your reading** as you scroll.
+- Click the **pin** next to a name to move that bookmark to this page; it then follows you.
+- Going to a page number, a search result, a link or a thumbnail leaves every bookmark where it was (the bar says "No bookmark follows you"). Pin one if you meant to bring it along.
+- **Back** (⌘[) toggles between where you were before the last jump and where you are, e.g. Current ⇄ Answers.
+- Keys: ⌃1–⌃4 go to a bookmark, ⌃⌥1–⌃⌥4 pin it here, ⌘D adds one. Right-click a bookmark to rename or remove it.
+
