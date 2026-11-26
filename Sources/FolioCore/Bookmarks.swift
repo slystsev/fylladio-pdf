@@ -11,8 +11,10 @@ public struct Spot: Codable, Equatable {
 public struct Bookmark: Codable, Equatable {
     public var id: String
     public var name: String
-    public var spot: Spot
-    public init(id: String, name: String, spot: Spot) { self.id = id; self.name = name; self.spot = spot }
+    /// nil until the user places it (a new file's Current starts unplaced, so a careless click can't jump to page 1).
+    public var spot: Spot?
+    public init(id: String, name: String, spot: Spot?) { self.id = id; self.name = name; self.spot = spot }
+    public var isPlaced: Bool { spot != nil }
 }
 
 /// Bookmarks of one document, modelled on ribbons in a physical book.
@@ -37,11 +39,16 @@ public struct BookmarkState: Codable, Equatable {
         self.bookmarks = bookmarks; self.activeID = activeID; self.back = back; self.backActiveID = backActiveID
     }
 
-    /// A new document: Current where you are reading (active), Review at the start.
-    public static func initial(reading: Spot?) -> BookmarkState {
-        BookmarkState(bookmarks: [Bookmark(id: currentID, name: "Current", spot: reading ?? Spot(page: 0)),
-                                  Bookmark(id: "review", name: "Review", spot: Spot(page: 0))],
-                      activeID: currentID)
+    /// A new document: one bookmark, Current, not placed yet. The sidebar asks you to place it.
+    public static func initial() -> BookmarkState {
+        BookmarkState(bookmarks: [Bookmark(id: currentID, name: "Current", spot: nil)], activeID: nil)
+    }
+
+    /// States saved by the first bookmark version had a "Review" that was never placed but sat at the
+    /// page-1 default; drop it so nobody jumps to page 1 by accident.
+    public mutating func migrate() {
+        bookmarks.removeAll { $0.id == "review" && $0.spot == Spot(page: 0) && activeID != "review" }
+        if backActiveID.map({ bookmark($0) == nil }) == true { backActiveID = nil }
     }
 
     public var active: Bookmark? { bookmarks.first { $0.id == activeID } }
@@ -54,9 +61,11 @@ public struct BookmarkState: Codable, Equatable {
         bookmarks[i].spot = spot
     }
 
-    /// Going to a bookmark from `here`. Returns where to go (nil: stay, e.g. it's the active one, which is here).
+    /// Going to a bookmark from `here`. Returns where to go (nil: stay). An unplaced bookmark is placed here
+    /// instead (like slipping a ribbon in), and clicking the active one does nothing.
     public mutating func jump(to id: String, from here: Spot) -> Spot? {
-        guard let target = bookmark(id)?.spot else { return nil }
+        guard let b = bookmark(id) else { return nil }
+        guard let target = b.spot else { pin(id, at: here); return nil }
         if id == activeID { follow(here); return nil }
         follow(here)
         back = here; backActiveID = activeID
@@ -115,7 +124,7 @@ public struct BookmarkState: Codable, Equatable {
     /// Keeps spots inside a document of `pageCount` pages (e.g. the file was replaced by a shorter one).
     public mutating func clamp(pageCount: Int) {
         let last = max(pageCount - 1, 0)
-        for i in bookmarks.indices where bookmarks[i].spot.page > last { bookmarks[i].spot = Spot(page: last) }
+        for i in bookmarks.indices where (bookmarks[i].spot?.page ?? 0) > last { bookmarks[i].spot = Spot(page: last) }
         if let b = back, b.page > last { back = Spot(page: last) }
     }
 }

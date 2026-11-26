@@ -318,45 +318,52 @@ final class SelfTest {
                 check(annCount(0) > 5, "annotations present after reopen")
                 snap("07-reopened")
             }),
-            // Bookmarks: physical-book rules in the real window.
+            // Bookmarks: physical-book rules in the real window (sidebar on the left).
             (0.3, { [self] in
-                check(c.bookmarkBar.nameButtons["current"] != nil && c.bookmarkBar.nameButtons["review"] != nil, "bookmark bar shows Current and Review")
-                c.pinBookmark(id: "current")
-                check(c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot.page == 29, "pin puts Current on page 30 (spot \(String(describing: c.bookmarks.bookmark("current")?.spot)), view page \(view.currentPage.map { view.document!.index(for: $0) } ?? -1), active \(c.bookmarks.activeID ?? "nil"))")
+                let sb = c.bookmarkSidebar
+                check(sb.rows.keys.sorted() == ["current"] && c.bookmarks.bookmark("current")?.spot == nil, "new file: one bookmark, Current, unplaced")
+                check(!sb.statusLabel.stringValue.isEmpty, "sidebar asks to place Current")
+                check(c.ribbonsForTest.isEmpty, "no ribbons before placing")
+                sb.rows["current"]!.performClick()
+                check(view.currentPage.map { view.document!.index(for: $0) } == 29 && c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot?.page == 29,
+                      "clicking unplaced Current places it on page 30, no jump")
+                check(c.ribbonsForTest.count == 1 && c.ribbonsForTest[0].active, "active ribbon shown")
                 c.nextPage(nil)   // reading on (Page Down)
             }),
             (0.6, { [self] in
-                check(c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot.page == 30, "Current follows reading to page 31 (\(c.bookmarks.bookmark("current")?.spot.page ?? -1))")
+                check(c.bookmarks.activeID == "current" && c.bookmarks.bookmark("current")?.spot?.page == 30, "Current follows reading to page 31")
                 c.pageField.stringValue = "45"; c.pageFieldEntered()
             }),
             (0.6, { [self] in
                 check(view.currentPage.map { view.document!.index(for: $0) } == 44, "page field jumps to 45")
-                check(c.bookmarks.activeID == nil && c.bookmarks.bookmark("current")?.spot.page == 30, "page jump: no bookmark follows, Current stays on 31")
-                check(!c.bookmarkBar.statusLabel.stringValue.isEmpty, "bar says no bookmark follows")
-                c.bookmarkBar.nameButtons["review"]!.performClick(nil)
-            }),
-            (0.6, { [self] in
-                check(view.currentPage.map { view.document!.index(for: $0) } == 0 && c.bookmarks.activeID == "review", "Review click goes to page 1 and Review follows")
-                c.bookmarkBar.backButton.performClick(nil)
-            }),
-            (0.6, { [self] in
-                check(view.currentPage.map { view.document!.index(for: $0) } == 44 && c.bookmarks.activeID == nil, "Back returns to page 45 (nothing following there)")
-                c.bookmarkBar.nameButtons["current"]!.performClick(nil)
+                check(c.bookmarks.activeID == nil && c.bookmarks.bookmark("current")?.spot?.page == 30, "page jump: no bookmark follows, Current stays on 31")
+                check(!c.bookmarkSidebar.statusLabel.stringValue.isEmpty, "sidebar says nothing moves with you")
+                c.addBookmark(named: "Answers")
+                let ans = c.bookmarks.bookmarks.last!
+                check(ans.name == "Answers" && ans.spot?.page == 44 && c.bookmarks.activeID == ans.id, "new bookmark goes on this page and moves with you")
+                c.bookmarkSidebar.rows["current"]!.performClick()
             }),
             (0.6, { [self] in
                 check(view.currentPage.map { view.document!.index(for: $0) } == 30 && c.bookmarks.activeID == "current", "Current click returns to page 31")
+                c.bookmarkSidebar.backButton.performClick(nil)
+            }),
+            (0.6, { [self] in
+                check(view.currentPage.map { view.document!.index(for: $0) } == 44 && c.bookmarks.active?.name == "Answers", "Back returns to Answers, which moves with you again")
                 view.go(to: view.document!.page(at: 9)!)   // like a thumbnail or link
             }),
             (0.6, { [self] in
-                check(c.bookmarks.activeID == nil && c.bookmarks.bookmark("current")?.spot.page == 30, "thumbnail/link jump leaves Current in place")
-                c.bookmarkBar.pinButtons["review"]!.performClick(nil)
-                check(c.bookmarks.activeID == "review" && c.bookmarks.bookmark("review")?.spot.page == 9, "one-click pin moves Review to page 10")
+                check(c.bookmarks.activeID == nil && c.bookmarks.bookmark("current")?.spot?.page == 30, "thumbnail/link jump leaves bookmarks in place")
+                let ansID = c.bookmarks.bookmarks.last!.id
+                c.bookmarkSidebar.pinButtons[ansID]!.performClick(nil)
+                check(c.bookmarks.activeID == ansID && c.bookmarks.bookmark(ansID)?.spot?.page == 9, "one-click pin moves Answers to page 10")
+                check(c.ribbonsForTest.count == 2 && c.ribbonsForTest.filter(\.active).count == 1, "two ribbons, one active")
                 snap("09-bookmarks")
-                let bar = c.bookmarkBar
-                if let rep = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
-                    bar.cacheDisplay(in: bar.bounds, to: rep)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("09-bookmark-bar.png"))
+                let col = c.bookmarkSidebar.superview!
+                if let rep = col.bitmapImageRepForCachingDisplay(in: col.bounds) {
+                    col.cacheDisplay(in: col.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("09-sidebar.png"))
                 }
+                check(col.frame.width >= 140 && col.frame.width <= 320, "left column is narrow (\(Int(col.frame.width)) px)")
                 BookmarkStore.shared.flush()
                 check(BookmarkStore(url: out.appendingPathComponent("bookmarks.json")).state(for: c.url) == c.bookmarks, "bookmarks saved")
                 // Deliberate main-thread stall: the watchdog must log it and take a stack sample.

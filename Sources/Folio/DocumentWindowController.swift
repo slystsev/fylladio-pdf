@@ -2,7 +2,7 @@ import AppKit
 import PDFKit
 import FolioCore
 
-final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate,
+final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSSplitViewDelegate,
     AnnotatingPDFViewDelegate, PDFDocumentDelegate, NSSearchFieldDelegate, NSTextFieldDelegate {
 
     let url: URL
@@ -37,9 +37,17 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     var onClose: ((DocumentWindowController) -> Void)?
 
+    // Left column sizing
+    static let sidebarMin: CGFloat = 140, sidebarMax: CGFloat = 320
+    private var sidebarWidth: CGFloat = 170
+    private var thumbnailsTop: NSLayoutConstraint?
+
     // Bookmarks (see BookmarkState for the rules)
-    let bookmarkBar = BookmarkBarView()
-    private(set) var bookmarks = BookmarkState.initial(reading: nil)
+    let bookmarkSidebar = BookmarkSidebarView()
+    private let ribbonOverlay = RibbonOverlay()
+    private let sidebarColumn = NSView()
+    private let sidebarWidthKey = "Folio.sidebarWidth"
+    private(set) var bookmarks = BookmarkState.initial()
     private var followTimer: DispatchWorkItem?
 
     init?(url: URL, tools: [ToolSpec]) {
@@ -82,12 +90,37 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         thumbnails.allowsMultipleSelection = true
         thumbnails.backgroundColor = .windowBackgroundColor
 
+        // Left column: bookmarks on top (always), thumbnails below (⌥⌘S). Narrow and resizable.
+        for v in [bookmarkSidebar, thumbnails] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            sidebarColumn.addSubview(v)
+        }
+        let sep = NSBox(); sep.boxType = .separator; sep.translatesAutoresizingMaskIntoConstraints = false
+        sidebarColumn.addSubview(sep)
+        thumbnailsTop = thumbnails.topAnchor.constraint(equalTo: sep.bottomAnchor)
+        NSLayoutConstraint.activate([
+            bookmarkSidebar.topAnchor.constraint(equalTo: sidebarColumn.topAnchor),
+            bookmarkSidebar.leadingAnchor.constraint(equalTo: sidebarColumn.leadingAnchor),
+            bookmarkSidebar.trailingAnchor.constraint(equalTo: sidebarColumn.trailingAnchor),
+            sep.topAnchor.constraint(equalTo: bookmarkSidebar.bottomAnchor),
+            sep.leadingAnchor.constraint(equalTo: sidebarColumn.leadingAnchor),
+            sep.trailingAnchor.constraint(equalTo: sidebarColumn.trailingAnchor),
+            thumbnailsTop!,
+            thumbnails.leadingAnchor.constraint(equalTo: sidebarColumn.leadingAnchor),
+            thumbnails.trailingAnchor.constraint(equalTo: sidebarColumn.trailingAnchor),
+            thumbnails.bottomAnchor.constraint(equalTo: sidebarColumn.bottomAnchor),
+        ])
         split.isVertical = true
         split.dividerStyle = .thin
-        split.addArrangedSubview(thumbnails)
+        split.delegate = self
+        split.addArrangedSubview(sidebarColumn)
         split.addArrangedSubview(pdfView)
         split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+        split.setHoldingPriority(.defaultLow, forSubviewAt: 1)
         window?.contentView = split
+        let w = FolioDefaults.shared.double(forKey: sidebarWidthKey)
+        sidebarWidth = w >= Self.sidebarMin && w <= Self.sidebarMax ? CGFloat(w) : 170
+        split.setPosition(sidebarWidth, ofDividerAt: 0)
         setSidebar(visible: FolioDefaults.shared.bool(forKey: "Folio.sidebar"))
 
         NotificationCenter.default.addObserver(self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: pdfView)
@@ -298,23 +331,23 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     // MARK: Bookmarks
 
     private func setupBookmarkBar() {
-        let acc = NSTitlebarAccessoryViewController()
-        acc.view = bookmarkBar
-        acc.layoutAttribute = .bottom
-        window?.addTitlebarAccessoryViewController(acc)
-        bookmarkBar.onGo = { [weak self] id in self?.goToBookmark(id: id) }
-        bookmarkBar.onPin = { [weak self] id in self?.pinBookmark(id: id) }
-        bookmarkBar.onBack = { [weak self] in self?.goBack(nil) }
-        bookmarkBar.onAdd = { [weak self] in self?.addBookmark(nil) }
-        bookmarkBar.onRename = { [weak self] id in self?.renameBookmark(id: id) }
-        bookmarkBar.onRemove = { [weak self] id in self?.removeBookmark(id: id) }
+        ribbonOverlay.autoresizingMask = [.width, .height]
+        ribbonOverlay.frame = pdfView.bounds
+        pdfView.addSubview(ribbonOverlay)
+        bookmarkSidebar.onGo = { [weak self] id in self?.goToBookmark(id: id) }
+        bookmarkSidebar.onPin = { [weak self] id in self?.pinBookmark(id: id) }
+        bookmarkSidebar.onBack = { [weak self] in self?.goBack(nil) }
+        bookmarkSidebar.onAdd = { [weak self] in self?.addBookmark(nil) }
+        bookmarkSidebar.onRename = { [weak self] id in self?.renameBookmark(id: id) }
+        bookmarkSidebar.onRemove = { [weak self] id in self?.removeBookmark(id: id) }
         pdfView.onJump = { [weak self] in self?.pageJumped() }
-        pdfView.onViewMoved = { [weak self] in self?.scheduleFollow() }
+        pdfView.onViewMoved = { [weak self] in self?.scheduleFollow(); self?.updateRibbons() }
     }
 
     /// Loads this file's bookmarks (after the reading position is restored, so Current starts there).
     private func loadBookmarks() {
-        var state = BookmarkStore.shared.state(for: url) ?? .initial(reading: currentSpot())
+        var state = BookmarkStore.shared.state(for: url) ?? .initial()
+        state.migrate()
         state.clamp(pageCount: pdfDocument.pageCount)
         bookmarks = state
         bookmarksChanged()
@@ -342,11 +375,35 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     private func bookmarksChanged() {
         followTimer?.cancel(); followTimer = nil
         BookmarkStore.shared.set(bookmarks, for: url)
-        bookmarkBar.reload(bookmarks) { [weak self] i in
+        bookmarkSidebar.reload(bookmarks) { [weak self] i in
             guard let self, let p = self.pdfDocument.page(at: i) else { return "\(i + 1)" }
             return p.label ?? "\(i + 1)"
         }
+        updateRibbons()
     }
+
+    /// Ribbons on the pages: the active bookmark at the top of the view (you're carrying it), the others at
+    /// their spots on the right edge of their page.
+    private func updateRibbons() {
+        var out: [RibbonOverlay.Ribbon] = []
+        for (i, b) in bookmarks.bookmarks.enumerated() {
+            guard let spot = b.spot, let page = pdfDocument.page(at: spot.page) else { continue }
+            let right = page.bounds(for: pdfView.displayBox).maxX
+            let active = b.id == bookmarks.activeID
+            var pt: NSPoint
+            if active, let here = currentSpot(), let hp = pdfDocument.page(at: here.page) {
+                let edge = hp.bounds(for: pdfView.displayBox).maxX
+                pt = pdfView.convert(NSPoint(x: edge, y: here.y), from: hp)
+                pt.y = pdfView.isFlipped ? pdfView.bounds.minY : pdfView.bounds.maxY   // hangs from the top edge
+            } else {
+                pt = pdfView.convert(NSPoint(x: right, y: spot.y), from: page)
+                pt.y += pdfView.isFlipped ? -spotInset : spotInset   // the spot is 12 px below where the view's top was
+            }
+            out.append(.init(point: ribbonOverlay.convert(pt, from: pdfView), color: RibbonColor.at(i), active: active, name: b.name))
+        }
+        ribbonOverlay.ribbons = out
+    }
+
 
     /// Scrolling / reading: the active bookmark follows (debounced).
     private func scheduleFollow() {
@@ -358,10 +415,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     private func followNow() {
         followTimer?.cancel(); followTimer = nil
         guard positionRestored, let here = currentSpot() else { return }
-        let before = bookmarks.active?.spot.page
+        let before = bookmarks.active?.spot?.page
         bookmarks.follow(here)
         BookmarkStore.shared.set(bookmarks, for: url)
-        if bookmarks.active?.spot.page != before { bookmarksChanged() }  // tooltips show page numbers
+        if bookmarks.active?.spot?.page != before { bookmarksChanged() }  // the sidebar shows the page number
     }
 
     /// A jump not made through a bookmark: no bookmark follows afterwards.
@@ -403,12 +460,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     @objc func addBookmark(_ sender: Any?) {
         guard bookmarks.canAdd else { NSSound.beep(); return }
-        askName(title: "Add a bookmark here", initial: bookmarks.bookmarks.count == 2 ? "Answers" : "Bookmark \(bookmarks.bookmarks.count + 1)") { [weak self] name in
-            guard let self, let here = self.currentSpot() else { return }
-            self.bookmarks.add(name: name, at: here)
-            self.bookmarksChanged()
-        }
+        let suggested = ["Review", "Answers", "Bookmark 4"].first { n in !bookmarks.bookmarks.contains { $0.name == n } } ?? "Bookmark"
+        askName(title: "Add a bookmark on this page", initial: suggested) { [weak self] name in self?.addBookmark(named: name) }
     }
+
+    /// Adds a bookmark on the current page; it becomes the one that moves with you.
+    func addBookmark(named name: String) {
+        guard let here = currentSpot() else { return }
+        bookmarks.add(name: name, at: here)
+        bookmarksChanged()
+    }
+
+    var ribbonsForTest: [RibbonOverlay.Ribbon] { ribbonOverlay.ribbons }
 
     func renameBookmark(id: String) {
         guard let b = bookmarks.bookmark(id) else { return }
@@ -510,9 +573,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     }
 
     private func setSidebar(visible: Bool) {
+        // The column (bookmarks) always stays; only the thumbnails show or hide.
         thumbnails.isHidden = !visible
-        split.adjustSubviews()
-        split.setPosition(visible ? 150 : 0, ofDividerAt: 0)
     }
 
     @objc private func zoomSegment(_ sender: NSSegmentedControl) {
@@ -665,6 +727,25 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         if dirty { saveNow() }
         savePosition()
     }
+
+    // MARK: Split view (left column)
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMin: CGFloat, ofSubviewAt i: Int) -> CGFloat { Self.sidebarMin }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMax: CGFloat, ofSubviewAt i: Int) -> CGFloat { Self.sidebarMax }
+    func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
+    /// A wider grab area than the 1 px line: 6 px either side.
+    func splitView(_ splitView: NSSplitView, additionalEffectiveRectOfDividerAt i: Int) -> NSRect {
+        let x = sidebarColumn.frame.maxX
+        return NSRect(x: x - 6, y: 0, width: 13, height: splitView.bounds.height)
+    }
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        let w = sidebarColumn.frame.width
+        guard w >= Self.sidebarMin, w <= Self.sidebarMax, abs(w - sidebarWidth) > 0.5 else { return }
+        sidebarWidth = w
+        FolioDefaults.shared.set(Double(w), forKey: sidebarWidthKey)
+    }
+    /// Window resizing changes the document, not the column.
+    func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool { view !== sidebarColumn }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
