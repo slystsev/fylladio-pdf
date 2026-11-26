@@ -22,6 +22,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     private var saveTimer: DispatchWorkItem?
     private var backedUp = false
     private var lastSaveDuration: TimeInterval = 0
+    private var editGeneration = 0
+    private var saveInFlight = false
+    private var resaveWanted = false
+    private var closed = false
     private var saveFailedShown = false
     private var positionTimer: DispatchWorkItem?
 
@@ -195,29 +199,51 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     // MARK: Autosave
 
     func annotationsDidChange() {
+        editGeneration += 1
         dirty = true
+        scheduleSave()
+    }
+
+    private func scheduleSave() {
         saveTimer?.cancel()
-        // Big files take a while to write (PDFKit rewrites the whole file on the main thread),
-        // so wait for a longer pause in editing before saving them. Deactivate/close/quit still save at once.
-        let delay = min(10, max(1.5, lastSaveDuration * 3))
+        // Saving runs in the background, so the pause only limits how often a big file is rewritten.
+        let delay = max(1.5, min(5, lastSaveDuration))
         saveTimer = Debounce.after(delay) { [weak self] in self?.saveNow() }
     }
 
-    @discardableResult
-    func saveNow() -> Bool {
+    /// Starts a save of the current state. The document is snapshotted with `PDFDocument.copy()` (about 1 ms,
+    /// independent of later edits; verified) and written on a serial background queue, so a big file's
+    /// multi-second rewrite never blocks the window. Edits made meanwhile keep the document dirty and are
+    /// saved by a follow-up save.
+    func saveNow() {
         saveTimer?.cancel(); saveTimer = nil
         pdfView.endTextEntry(commit: true)
-        guard dirty else { return true }
+        guard dirty else { return }
+        if saveInFlight { resaveWanted = true; return }
         if !backedUp { backedUp = SafeSaver.backup(url) != nil }
-        do {
+        guard let snapshot = pdfDocument.copy() as? PDFDocument else { return }
+        let generation = editGeneration
+        let url = self.url
+        saveInFlight = true
+        SaveQueue.group.enter()
+        SaveQueue.queue.async {
             let started = Date()
-            try SafeSaver.save(pdfDocument, to: url)
-            lastSaveDuration = Date().timeIntervalSince(started)
-            dirty = false
-            saveFailedShown = false
-            return true
-        } catch {
+            var failure: Error?
+            do { try SafeSaver.save(snapshot, to: url) } catch { failure = error }
+            let duration = Date().timeIntervalSince(started)
+            DispatchQueue.main.async {
+                self.saveFinished(generation: generation, duration: duration, error: failure)
+                SaveQueue.group.leave()
+            }
+        }
+    }
+
+    private func saveFinished(generation: Int, duration: TimeInterval, error: Error?) {
+        saveInFlight = false
+        lastSaveDuration = duration
+        if let error {
             FileHandle.standardError.write("Folio: save failed for \(url.path): \(error)\n".data(using: .utf8)!)
+            resaveWanted = false
             if !saveFailedShown {
                 saveFailedShown = true
                 let alert = NSAlert()
@@ -225,11 +251,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
                 alert.informativeText = "The file may be locked or read-only. Your annotations are still open here. Save a copy to keep them."
                 alert.addButton(withTitle: "Save a Copy…")
                 alert.addButton(withTitle: "Later")
-                if let w = window {
+                if let w = window, w.isVisible {
                     alert.beginSheetModal(for: w) { [weak self] r in if r == .alertFirstButtonReturn { self?.saveCopy(nil) } }
+                } else {
+                    alert.runModal()
                 }
             }
-            return false
+            return
+        }
+        saveFailedShown = false
+        if generation == editGeneration { dirty = false }
+        if dirty {
+            if resaveWanted || closed { resaveWanted = false; saveNow() } else { scheduleSave() }
         }
     }
 
@@ -464,6 +497,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     }
 
     func windowWillClose(_ notification: Notification) {
+        closed = true
         saveNow()
         savePosition()
         pdfDocument.cancelFindString()
@@ -505,6 +539,19 @@ private extension PDFDocument {
 
 /// GCD-based debounce: runs on the main queue even during mouse tracking / scrolling and isn't
 /// subject to run-loop mode or timer coalescing the way Timer is.
+/// Background saves. Serial, so writes to the same file never overlap; the group lets quit wait for them.
+enum SaveQueue {
+    static let queue = DispatchQueue(label: "folio.save", qos: .userInitiated)
+    static let group = DispatchGroup()
+
+    /// Blocks until every started save (including follow-ups they trigger) has finished. Used at quit.
+    static func waitForAll() {
+        while group.wait(timeout: .now()) == .timedOut {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+    }
+}
+
 enum Debounce {
     static func after(_ seconds: Double, _ f: @escaping () -> Void) -> DispatchWorkItem {
         let item = DispatchWorkItem(block: f)

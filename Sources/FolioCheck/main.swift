@@ -107,6 +107,28 @@ let mv = reloaded.page(at: 0)!.annotations.first { $0.type == "Highlight" && abs
 check(mv != nil, "moved highlight persisted at new position")
 let mp = reloaded.page(at: 0)!.annotations.first { AnnotationFactory.kind(of: $0) == .pen && $0.bounds.minY < 300 }
 check(mp != nil, "moved pen stroke persisted at new position")
+// Background save: a copy() snapshot written off the main thread while the original keeps changing
+// must contain exactly the state at snapshot time.
+do {
+    let live = PDFDocument(url: small)!
+    let before = live.page(at: 0)!.annotations.count
+    let snap = live.copy() as! PDFDocument
+    let bgURL = small.deletingLastPathComponent().appendingPathComponent("snapshot.pdf")
+    try? FileManager.default.removeItem(at: bgURL)
+    try? FileManager.default.copyItem(at: small, to: bgURL)
+    let done = DispatchSemaphore(value: 0)
+    var bgError: Error?
+    DispatchQueue.global().async { do { try SafeSaver.save(snap, to: bgURL) } catch { bgError = error }; done.signal() }
+    var edits = 0
+    repeat {
+        let a = PDFAnnotation(bounds: CGRect(x: 5, y: 5, width: 10, height: 10), forType: .square, withProperties: nil)
+        live.page(at: 0)!.addAnnotation(a)
+        if let f = live.page(at: 0)!.annotations.first { var b = f.bounds; b.origin.y += 1; f.bounds = b }
+        edits += 1
+    } while done.wait(timeout: .now()) == .timedOut
+    let saved = PDFDocument(url: bgURL)!.page(at: 0)!.annotations.count
+    check(bgError == nil && saved == before, "background snapshot save excludes \(edits) later edits (\(saved) == \(before))")
+}
 check(ToolConfig.validate(ToolConfig.defaults).isEmpty, "default tools valid")
 var bad = ToolConfig.defaults; bad[1].key = "1"
 check(!ToolConfig.validate(bad).isEmpty, "duplicate shortcut rejected")

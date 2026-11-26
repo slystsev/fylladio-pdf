@@ -33,7 +33,7 @@ colour pickers, no per-use settings.
 | D5 | Text vs rectangle is decided by **where the drag starts**: on a character → text mode, otherwise rectangle. Holding **Option** forces rectangle. | Predictable, and avoids the "highlight barely works" problem. |
 | D6 | Tools come from `~/Library/Application Support/Folio/tools.json`, edited in **Settings (⌘,)**: colour, opacity (markers), width (lines and pens), font and size (text), name, optional one-key shortcut. **1–5 tools per kind** (assumed meaning of the user's "up to 5 tools"); the defaults are the current set plus 3 pens (Q/W/E). Esc/V = pointer. A tool stays active after use; its key again puts it down. An old tools.json missing a kind gets that kind's defaults. | "All preconfigured", but adjustable once without per-use pickers. |
 | D6a | Changing settings affects only new annotations. | Existing marks are part of the document. Right-click recolour exists for single changes. |
-| D7 | Autosave: every edit marks the document dirty, and it is written after an idle pause, on window close, on window resign-key, on app deactivate, and on quit. The write goes to a temp file and then an atomic replace. The pause is 1.5 s, or 3× the last save's duration for big files (capped at 10 s). The debounce uses GCD, not `Timer`. | Never lose edits, and never leave a half-written file. GCD fires during mouse tracking and scrolling. Verified: a 240 MB scan-like file takes about 2.3 s to save, so autosave must not interrupt active work. |
+| D7 | Autosave: every edit bumps an edit counter. The document is saved after an idle pause (1.5 s, up to 5 s for files that take long to write), on window close, resign-key, app deactivate, and quit. **The save runs in the background**: `PDFDocument.copy()` takes an independent snapshot (about 1 ms), and a serial queue writes it to a temp file and does an atomic replace. Edits made during a save keep the window dirty and trigger a follow-up save. Quit waits for pending saves. | Never lose edits, never leave a half-written file, never freeze. User report (round 3): a 92 MB, 377-page file with 3,400 Preview annotations takes 4–6 s to write, and the old main-thread save froze the window that long after edits. Verified: the snapshot is exact while the original is mutated concurrently (FolioCheck, plus a stress test on the real file). |
 | D8 | Before the first save of a file in each session, a backup copy goes to `~/Library/Application Support/Folio/Backups/` (APFS clone, so cheap). Keeps the last 30. | Insurance against PDFKit write bugs corrupting a file. |
 | D9 | Position (page, point, zoom) is stored per file path in UserDefaults and restored on open. Open windows are restored on relaunch. | "Keep position." |
 | D10 | Search is async (`beginFindString`). Return/⌘G goes to the next result, ⇧Return/⇧⌘G to the previous. | Responsive on huge documents. |
@@ -76,9 +76,9 @@ colour pickers, no per-use settings.
 
 ## Known risks / limits
 
-- PDFKit's `write(to:)` rewrites the whole file. On very large files the save
-  takes time and runs on the main thread, though only after 1.5 s of idle. A future
-  option is an incremental-update writer that appends only changed objects.
+- PDFKit's `write(to:)` rewrites the whole file (about 5 s and full CPU for a 92 MB file). It runs in the
+  background, but files in iCloud Drive are re-uploaded after each save. A future option is an
+  incremental-update writer that appends only changed objects.
 - PDFKit can lose some exotic PDF features when rewriting (rare). D8 backups mitigate this.
 - Locked or encrypted PDFs, and read-only locations: the save fails, an alert offers "Save a Copy…", and the edits stay in memory.
 - Annotations can't be resized, and can't be moved to another page.

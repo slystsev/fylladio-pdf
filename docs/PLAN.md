@@ -26,6 +26,9 @@ Build: `scripts/build-app.sh` → `dist/Folio.app`. Checks: see "Testing" in DES
 - [x] Move selected annotation (drag, arrow nudge), undo
 - [x] Tests extended (FolioCheck + UI self-test, 37 checks)
 
+## Milestone 2b: user feedback round 2 (done 2026-11-26)
+- [x] Slowdown on big annotated file: save moved to background snapshot writes (D7)
+
 ## Milestone 3: needs a human / next
 - [ ] Hands-on test by the user with real documents (scans, big books); tune marker colours/alpha in tools.json
 - [ ] Verify printing from the real dialog (can't be automated: modal panel)

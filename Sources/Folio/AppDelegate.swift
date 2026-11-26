@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controllers.forEach { $0.flush() }
+        SaveQueue.waitForAll()
         rememberOpenFiles(controllers.map(\.url))
         terminating = true
         return .terminateNow
