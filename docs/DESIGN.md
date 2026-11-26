@@ -77,6 +77,7 @@ Blue everywhere is Apple's "Aqua" (0096FF), at the user's request.
 
 ## Testing
 
+- `scripts/test-ui.sh <outDir>`: builds a separate app copy (.build/test/Folio.app) and runs the UI self-test with its own settings suite (`app.folio.pdf.selftest`), bookmark store and log folder, so it never touches the user's state or a running Folio.
 - `swift run -c release FolioCheck [outDir] [pages]`: headless core checks plus timings. `FOLIO_HEAVY=300` adds the 240 MB test.
 - UI self-test drives the real window with synthetic events and writes PNGs and `report.txt`:
   `FOLIO_SELFTEST=<outDir> FOLIO_SELFTEST_FILE=<copy-of-a-50-page-FolioCheck-large.pdf> dist/Folio.app/Contents/MacOS/Folio`
