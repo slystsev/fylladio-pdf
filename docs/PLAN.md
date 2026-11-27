@@ -74,3 +74,17 @@ Build: `scripts/build-app.sh` → `dist/Fylladio.app`. Checks: see "Testing" in 
 - [x] Published: github.com/slystsev/fylladio-pdf (public, MIT). v0.1.0 was released as "Folio" (Folio-0.1.0.zip); v0.2.0 is the first as Fylladio.
 - Dropped: TOC sidebar (the user's book has a 1-entry outline; bookmarks cover it); typing digits to jump (digits are tool keys; ⌥⌘G exists)
 - [ ] Optional: eraser tool
+
+## TBD: Windows version (not started; discussed 2026-11-27)
+A rewrite, not a port: 15 of the Mac sources use AppKit/PDFKit, which don't exist on Windows. Reusable as spec, not code:
+DESIGN.md decisions, tool/bookmark rules, the annotation tag format (`Fylladio/<kind>@<alpha>`), bookmarks.json, demo PDF,
+test scenarios. Annotations are standard PDF, so both apps read/write the same files.
+- Engine options: **C# (WPF) + PDFium** via NuGet (recommended: fast on big scans, BSD; we draw annotation appearances ourselves);
+  Tauri + PDF.js + pdf-lib (cross-platform, weaker on 300 MB scans); Qt + MuPDF (best annotations, but AGPL: licence change).
+- Effort: roughly 2–4× the Mac version. Stages: (1) viewer + markers/underlines/pens/text + background save;
+  (2) bookmarks, recovery journal, settings; (3) resize, cross-page move, print.
+- Needs a Windows laptop running Claude Code locally (can't build/test from the Mac): Windows 10/11 with 8–16 GB RAM, Git for Windows,
+  .NET 8 SDK, optionally Visual Studio 2022 Community (.NET desktop workload), GitHub CLI, the user's test PDFs (not committed).
+  Clone the repo, set git user.email to the no-reply address, code under `windows/`.
+- Later: code signing (else a SmartScreen warning, documented like Gatekeeper), installer vs portable zip; ARM and x64 both fine.
+- First step when started: a design note mapping each Mac decision (D1–D20) to its Windows equivalent, before code.
